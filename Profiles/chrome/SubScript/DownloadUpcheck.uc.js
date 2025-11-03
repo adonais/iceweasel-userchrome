@@ -794,6 +794,7 @@
             // 某些网站可能不适用于下载器, 只能用浏览器下载
             // 在这里排除它
             let Domain = [
+                  'blob:',
                   'moz-extension://',
                   'subhdtw.com',
                   'subhd.tv'
