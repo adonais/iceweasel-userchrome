@@ -797,10 +797,12 @@
                   'blob:',
                   'moz-extension://',
                   'subhdtw.com',
-                  'subhd.tv'
+                  'subhd.tv',
+                  '/\.xpi$/i',
+                  '/xpinstall$/i'
             ];
             for(let item of Domain) {
-                if (url.indexOf(item) >= 0) {
+                if (url.search(item) >= 0) {
                     ex = true;
                     break;
                 }
