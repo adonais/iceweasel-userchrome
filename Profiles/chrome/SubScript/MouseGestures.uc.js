@@ -866,7 +866,7 @@ z-index: 2147483647 !important;`.trim();
             reload.doCommand();
         }
 
-        // 打开新标签, 或从剪贴板读取URL
+        // 打开新标签
         static openNewTab() {
             BrowserCommands.openTab();
         }
@@ -1125,9 +1125,9 @@ z-index: 2147483647 !important;`.trim();
         'UL': {name: advance_left, cmd: MouseGestureCommand.advanceLeftTab},
         'UR': {name: advance_right, cmd: MouseGestureCommand.advanceRightTab},
 
-        // 鼠标滚轮
-        //'W+': {name: previous_page, cmd: MouseGestureCommand.previousPage},
-        //'W-': {name: next_page, cmd: MouseGestureCommand.nextPage},
+        // 鼠标滚轮向下/向上
+        //'W+': {name: previous_page, cmd: MouseGestureCommand.nextPage},
+        //'W-': {name: next_page, cmd: MouseGestureCommand.previousPage},
 
         // 关闭标签与恢复标签
         'DL': {name: undo_close, cmd: MouseGestureCommand.restoreClosedTab},
@@ -1312,9 +1312,6 @@ z-index: 2147483647 !important;`.trim();
                 x -= screenX;
                 y -= screenY;
                 [this.lastX, this.lastY, this.directionChain] = [x, y, ''];
-            }
-            if (event.button === 0) {
-                this.endGesture();
             }
         }
 
