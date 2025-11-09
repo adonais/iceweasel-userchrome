@@ -7,7 +7,6 @@
 // 相关 about:config 选项 修改后请重启浏览器，不支持热重载
 // userChromeJS.downloadPlus.flashgotDownloadManagers 下载器列表缓存（一般不需要修改)
 // userChromeJS.downloadPlus.flashgotDefaultManager 默认第三方下载器（一般不需要修改）
-// userChromeJS.downloadPlus.enableRename 下载对话框启用改名功能
 // userChromeJS.downloadPlus.enableDoubleClickToCopyLink 下载对话框双击复制链接
 // userChromeJS.downloadPlus.enableCopyLinkButton 下载对话框启用复制链接按钮
 // userChromeJS.downloadPlus.enableDoubleClickToSave 双击保存
@@ -189,41 +188,6 @@
                 }, { once: true });
             }
             this.sb = sb;
-            if (isTrue('userChromeJS.downloadPlus.enableRename')) {
-                const obsService = Cc['@mozilla.org/observer-service;1'].getService(Ci.nsIObserverService);
-                const RESPONSE_TOPIC = 'http-on-examine-response';
-
-                this.changeNameObserver = {
-                    observing: false,
-                    observe: function (subject, topic, data) {
-                        try {
-                            let channel = subject.QueryInterface(Ci.nsIHttpChannel);
-                            let header = channel.contentDispositionHeader;
-                            let associatedWindow = channel.notificationCallbacks
-                                .getInterface(Ci.nsILoadContext)
-                                .associatedWindow;
-                            associatedWindow.localStorage.setItem(channel.URI.spec, header.split("=")[1]);
-                        } catch (e) { };
-                    },
-                    start: function () {
-                        if (!this.observing) {
-                            obsService.addObserver(this, RESPONSE_TOPIC, false);
-                            this.observing = true;
-                        }
-                    },
-                    stop: function () {
-                        if (this.observing) {
-                            obsService.removeObserver(this, RESPONSE_TOPIC, false);
-                            this.observing = false;
-                        }
-                    }
-                };
-
-                this.changeNameObserver.start();
-                window.addEventListener("beforeunload", () => {
-                    window.DownloadPlus.changeNameObserver.stop();
-                });
-            }
             if (isTrue('userChromeJS.downloadPlus.enableSaveAndOpen')) {
                 this.URLS_FOR_OPEN = [];
                 const saveAndOpenView = {
@@ -341,7 +305,7 @@
             // 原有按钮增加 accesskey
             dialogFrame.getButton('accept').setAttribute('accesskey', 'c');
             dialogFrame.getButton('cancel').setAttribute('accesskey', 'x');
-            if (isTrue('userChromeJS.downloadPlus.enableRename')) {
+            if (true) {
                 let locationHbox = createEl(document, 'hbox', {
                     id: 'locationHbox',
                     flex: 1,
@@ -505,11 +469,7 @@
                     label: save_as,
                     accesskey: 'E',
                     oncommand: function () {
-                        const mainwin = Services.wm.getMostRecentWindow("navigator:browser");
-                        setBool("userChromeJS.downloadPlus.shown");
-                        // 感谢 ycls006 / alice0775
-                        Cu.evalInSandbox("(" + mainwin.internalSave.toString().replace("let ", "").replace("var fpParams", "fileInfo.fileExt=null;fileInfo.fileName=aDefaultFileName;var fpParams") + ")", mainwin.DownloadPlus.sb)(dialog.mLauncher.source.asciiSpec, null, null, ($("#locationText")?.value?.replace(invalidChars, '_') || dialog.mLauncher.suggestedFileName), null, null, false, null, null, null, null, null, false, null, mainwin.PrivateBrowsingUtils.isBrowserPrivate(mainwin.gBrowser.selectedBrowser), Services.scriptSecurityManager.getSystemPrincipal());
-                        close();
+                        fileSaveAs();
                     }
                 });
                 dialogFrame.getButton('extra2').before(saveAs);
@@ -576,9 +536,13 @@
                         return $('#Flashgot-Download-By-Default-Manager').click();
                     }
                     else if ($('#locationText')?.value && $('#locationText')?.value != dialog.mLauncher.suggestedFileName) {
-                        dialog.onCancel = function () { };
-                        let file = await IOUtils.getFile(await Downloads.getPreferredDownloadsDirectory(), $('#locationText').value);
-                        return dialog.mLauncher.saveDestinationAvailable(file);
+                        if (isTrue('browser.download.useDownloadDir')) {
+                            dialog.onCancel = function () { };
+                            let file = await IOUtils.getFile(await Downloads.getPreferredDownloadsDirectory(), $('#locationText').value);
+                            return dialog.mLauncher.saveDestinationAvailable(file);
+                        } else {
+                            fileSaveAs();
+                        }
                     }
                     else {
                         return cached_function.apply(this, ...args);
@@ -769,6 +733,13 @@
                 upcheck.download_caller(id, url, referer, filename, null);
             }
         }
+    }
+
+    function fileSaveAs() {
+        const mainwin = Services.wm.getMostRecentWindow("navigator:browser");
+        // 感谢 ycls006 / alice0775
+        Cu.evalInSandbox("(" + mainwin.internalSave.toString().replace("let ", "").replace("var fpParams", "fileInfo.fileExt=null;fileInfo.fileName=aDefaultFileName;var fpParams") + ")", mainwin.DownloadPlus.sb)(dialog.mLauncher.source.asciiSpec, null, null, ($("#locationText")?.value?.replace(invalidChars, '_') || dialog.mLauncher.suggestedFileName), null, null, false, null, null, null, null, null, false, null, mainwin.PrivateBrowsingUtils.isBrowserPrivate(mainwin.gBrowser.selectedBrowser), Services.scriptSecurityManager.getSystemPrincipal());
+        close();
     }
 
     function messageTip() {
