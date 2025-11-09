@@ -118,7 +118,7 @@
 
     const processCSS = (css) => {
         if (versionGE("143a1")) {
-            css =  `#DownloadPlus-Btn { list-style-image: var(--menuitem-icon); }\n` + css.replaceAll('list-style-image', '--menuitem-icon');
+            css = `#DownloadPlus-Btn { list-style-image: var(--menuitem-icon); }\n` + css.replaceAll('list-style-image', '--menuitem-icon');
         }
         return css;
     }
@@ -249,7 +249,7 @@
                     }
                 });
             }
-            if (isTrue('userChromeJS.downloadPlus.showAllDrives ')) {
+            if (isTrue('userChromeJS.downloadPlus.showAllDrives')) {
                 getAllDrives().forEach(drive => {
                     this.SAVE_DIRS.push([drive, l10n_format(disk_x, drive.replace(':\\', ""))])
                 });
@@ -1057,17 +1057,5 @@ hbox.copied > #completeLinkDescription {
     content: url("chrome://global/skin/icons/arrow-down-12.svg");
     -moz-context-properties: fill;
     fill: currentColor;
-}
-#libportable-message-box {
-    position: fixed;
-    bottom: 20px;
-    right: 30px;
-    background-color: #f44336;
-    color: white;
-    border-radius: 5px;
-    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-    padding: 10px;
-    font-size: 18px;
-    display: none;
 }
 `)
