@@ -1392,7 +1392,7 @@ z-index: 2147483647 !important;`.trim();
         }
 
         keydown(event) {
-            if (this.isMouseDownR && event.key === 'Escape') {
+            if (event.altKey || (this.isMouseDownR && event.key === 'Escape')) {
                 this.endGesture();
             }
         }
