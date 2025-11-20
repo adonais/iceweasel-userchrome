@@ -769,6 +769,7 @@
                   'moz-extension://',
                   'subhdtw.com',
                   'subhd.tv',
+                  'zimuku.org',
                   '/\.xpi$/i',
                   '/xpinstall$/i'
             ];
