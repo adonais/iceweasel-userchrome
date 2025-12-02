@@ -770,6 +770,7 @@
                   'subhdtw.com',
                   'subhd.tv',
                   'zimuku.org',
+                  'ctfile.com',
                   '/\.xpi$/i',
                   '/xpinstall$/i'
             ];
