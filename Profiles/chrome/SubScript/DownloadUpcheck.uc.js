@@ -766,6 +766,7 @@
             // 在这里排除它
             let Domain = [
                   'blob:',
+                  'data:image',
                   'moz-extension://',
                   'subhdtw.com',
                   'subhd.tv',
