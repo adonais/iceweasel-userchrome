@@ -772,6 +772,8 @@
                   'subhd.tv',
                   'zimuku.org',
                   'ctfile.com',
+                  'pan.via',
+                  '56ads.com',
                   '/\.xpi$/i',
                   '/xpinstall$/i'
             ];
