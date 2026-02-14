@@ -135,7 +135,11 @@
         get FLASHGOT_PATH () {
             delete this.FLASHGOT_PATH;
             const flashgotFile = Services.dirsvc.get("GreBinD", Ci.nsIFile);
-            flashgotFile.append("upcheck.exe");
+            if (AppConstants.platform === "win") {
+                flashgotFile.append("upcheck.exe");
+            } else {
+                flashgotFile.append("upcheck");
+            }
             return this.FLASHGOT_PATH = flashgotFile.exists() ? flashgotFile.path : false;
         },
         get DEFAULT_MANAGER () {
@@ -214,9 +218,13 @@
                 });
             }
             if (isTrue('userChromeJS.downloadPlus.showAllDrives')) {
-                getAllDrives().forEach(drive => {
-                    this.SAVE_DIRS.push([drive, l10n_format(disk_x, drive.replace(':\\', ""))])
-                });
+                if (AppConstants.platform != "win") {
+                    setBool('userChromeJS.downloadPlus.showAllDrives', false);
+                } else {
+                    getAllDrives().forEach(drive => {
+                        this.SAVE_DIRS.push([drive, l10n_format(disk_x, drive.replace(':\\', ""))])
+                    });
+                }
             }
             if (this.FLASHGOT_PATH) {
                 this.reloadSupportedManagers();
@@ -703,7 +711,12 @@
         reloadSupportedManagers: async function (force = false, callback) {
             const download_managers = getManagers();
             if (!download_managers.length || force) {
-                upcheck.runSelf(["-collect", this.reloadTools, callback]);
+                if (AppConstants.platform === "win") {
+                    upcheck.runSelf(["-collect", this.reloadTools, callback]);
+                } else {
+                    const uchrome = Services.dirsvc.get("UChrm", Ci.nsIFile).path;
+                    upcheck.runSelf(["-collect", "-param", uchrome, this.reloadTools, callback]);
+                }
             }
             else if (typeof callback === "function") {
                 callback(this);
@@ -777,6 +790,9 @@
                   '/\.xpi$/i',
                   '/xpinstall$/i'
             ];
+            if (AppConstants.platform === "win") {
+                Domain.push('download.gnome.org');
+            }
             for(let item of Domain) {
                 if (url.search(item) >= 0) {
                     ex = true;
@@ -908,22 +924,24 @@
      * @returns {array} 所有盘符数组
      */
     function getAllDrives () {
-        let lib = ctypes.open("kernel32.dll");
-        let GetLogicalDriveStringsW = lib.declare('GetLogicalDriveStringsW', ctypes.winapi_abi, ctypes.unsigned_long, ctypes.uint32_t, ctypes.char16_t.ptr);
-        let buffer = new (ctypes.ArrayType(ctypes.char16_t, 1024))();
-        let rv = GetLogicalDriveStringsW(buffer.length, buffer);
-        let resultLen = parseInt(rv.toString() || "0");
-        let arr = [];
-        if (!resultLen) {
+        if (AppConstants.platform === "win") {
+            let lib = ctypes.open("kernel32.dll");
+            let GetLogicalDriveStringsW = lib.declare('GetLogicalDriveStringsW', ctypes.winapi_abi, ctypes.unsigned_long, ctypes.uint32_t, ctypes.char16_t.ptr);
+            let buffer = new (ctypes.ArrayType(ctypes.char16_t, 1024))();
+            let rv = GetLogicalDriveStringsW(buffer.length, buffer);
+            let resultLen = parseInt(rv.toString() || "0");
+            let arr = [];
+            if (!resultLen) {
+                lib.close();
+                return arr;
+            }
+            for (let i = 0; i < resultLen; i++) {
+                arr[i] = buffer.addressOfElement(i).contents;
+            }
+            arr = arr.join('').split('\0').filter(el => el.length);
             lib.close();
             return arr;
         }
-        for (let i = 0; i < resultLen; i++) {
-            arr[i] = buffer.addressOfElement(i).contents;
-        }
-        arr = arr.join('').split('\0').filter(el => el.length);
-        lib.close();
-        return arr;
     }
 
     /**
