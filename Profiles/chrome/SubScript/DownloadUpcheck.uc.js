@@ -15,6 +15,7 @@
 // userChromeJS.downloadPlus.enableSaveTo 下载对话框启用保存到
 // userChromeJS.downloadPlus.showAllDrives 下载对话框显示所有驱动器
 
+// @note            20260327 修复在Fx 149.0, 单选框初始化状态问题. by adonais
 // @note            20251102 支持接管Iceweasel浏览器下载而不用弹出下载窗口. by adonais
 // @note            20251101 支持 Iceweasel l10n, 此脚本不再适用于firefox. by adonais
 // @note            20251031 修改代码, 支持Upcheck而不是flashgot, Upcheck支持Aria2 RPC. by adonais
@@ -667,12 +668,15 @@
             }
             popup.setAttribute("initialized", true);
             popup.querySelectorAll('menuitem[dynamic]').forEach(item => item.remove());
-            const sep = popup.querySelector("#FlashGot-DownloadManagers-Separator")
+            const sep = popup.querySelector("#FlashGot-DownloadManagers-Separator");
 
             for (let name of download_managers) {
+                if (name.trim() === '') {
+                    continue;
+                }
                 let obj = {
                     label: name,
-                    managerId: name.trim().replace(/\s+/g, '-'),
+                    manager: managerId(name),
                     dynamic: true,
                 };
                 if (popup.id === "DownloadPlus-Btn-Popup") {
@@ -680,15 +684,16 @@
                     obj.oncommand = () => {
                         this.DEFAULT_MANAGER = name;
                     }
-                    obj.checked = this.isManagerEnabled(name);
+                    if (this.DEFAULT_MANAGER === name) {
+                        obj.checked = true;
+                    }
                 }
                 let item = createEl(popup.ownerDocument, 'menuitem', obj);
                 popup.insertBefore(item, sep);
             }
-            if (!popup.querySelector("menuitem[dynamic]")) popup.removeAttribute("initialized");
-        },
-        isManagerEnabled: function (name) {
-            return this.DEFAULT_MANAGER === name;
+            if (!popup.querySelector("menuitem[dynamic]")) {
+                popup.removeAttribute("initialized");
+            }
         },
         reloadTools: function (value, callback = null) {
             let manager = [];
