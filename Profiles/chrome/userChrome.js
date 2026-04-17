@@ -539,6 +539,7 @@ window.userChrome_js = {
         target = new Cu.Sandbox(win, {
             sandboxPrototype: win,
             sameZoneAs: win,
+            freezeBuiltins: false,
         });
         /* toSource() is not available in sandbox */
         Cu.evalInSandbox(
