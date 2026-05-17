@@ -277,7 +277,7 @@
 
                 onDownloadAdded: (aDownload) => {
                     // 开始下载
-                    if (!exDomain(aDownload.source.url) && !isTrue("userChromeJS.downloadPlus.shown", false)) {
+                    if (!exDomain(aDownload.source.url) && !isTrue("userChromeJS.downloadPlus.shown", false) && !aDownload.error) {
                         if (alwaysOp) {
                             // 先取消工具栏下载弹出面板, 下载后恢复
                             setBool("browser.download.alwaysOpenPanel", false);
@@ -294,7 +294,7 @@
                         Services.prefs.clearUserPref("userChromeJS.downloadPlus.shown");
                     }
                     // 拦截了下载, 调用下载器
-                    if (aDownload.error) {
+                    if (document.hasFocus() && aDownload.error && aDownload.error.result === undefined) {
                         // call upcheck;
                         const id = managerId(this.DEFAULT_MANAGER);
                         const referer = aDownload.source.referrerInfo ? aDownload.source.referrerInfo : null;
