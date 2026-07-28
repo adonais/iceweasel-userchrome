@@ -602,8 +602,9 @@
                 // 获取按钮的位置信息
                 const rect = btn.getBoundingClientRect();
                 // 获取窗口的宽度和高度
-                const windowWidth = target.ownerGlobal.innerWidth;
-                const windowHeight = target.ownerGlobal.innerHeight;
+                const targetWin = target.documentGlobal || target.ownerGlobal || target.ownerDocument?.defaultView || window;
+                const windowWidth = targetWin.innerWidth;
+                const windowHeight = targetWin.innerHeight;
 
                 const x = rect.left + rect.width / 2;  // 按钮的水平中心点
                 const y = rect.top + rect.height / 2;  // 按钮的垂直中心点
@@ -788,7 +789,7 @@
                   'data:image',
                   'moz-extension://',
                   'subhdtw.com',
-                  'subhd.tv',
+                  'subhd.',
                   'zimuku.org',
                   'ctfile.com',
                   'pan.via',
