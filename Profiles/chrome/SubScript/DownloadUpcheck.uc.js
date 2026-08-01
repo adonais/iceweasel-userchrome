@@ -15,6 +15,7 @@
 // userChromeJS.downloadPlus.enableSaveTo 下载对话框启用保存到
 // userChromeJS.downloadPlus.showAllDrives 下载对话框显示所有驱动器
 
+// @note            20260801 兼容ESR115. by adonais
 // @note            20260327 修复在Fx 149.0, 单选框初始化状态问题. by adonais
 // @note            20251102 支持接管Iceweasel浏览器下载而不用弹出下载窗口. by adonais
 // @note            20251101 支持 Iceweasel l10n, 此脚本不再适用于firefox. by adonais
@@ -38,7 +39,7 @@
 // @include         chrome://browser/content/downloads/contentAreaDownloadsView.xhtml?SM
 // @include         about:downloads
 // @version         1.0.6
-// @compatibility   Firefox 139
+// @compatibility   Firefox 115
 // @homepageURL     https://github.com/benzBrake/FirefoxCustomize/Firefox-downloadPlus.uc.js
 // ==/UserScript==
 (async function (globalCSS, placesCSS, unknownContentCSS) {
@@ -49,12 +50,14 @@
     const Downloads = globalThis.Downloads || ChromeUtils.importESModule("resource://gre/modules/Downloads.sys.mjs").Downloads;
     const ctypes = globalThis.ctypes || ChromeUtils.importESModule("resource://gre/modules/ctypes.sys.mjs").ctypes;
     const {upcheck} = ChromeUtils.importESModule('resource://gre/modules/upcheck.sys.mjs');
+    const versionGE = (v) => {return Services.vc.compare(Services.appinfo.version, v) >= 0;}
     ChromeUtils.defineLazyGetter(lazy, 'L10n', () => {
         return new Localization(["branding/brand.ftl", "browser/preferences/preferences.ftl"], true);
     });
     ChromeUtils.defineESModuleGetters(this, {
-        DownloadsCommon: "moz-src:///browser/components/downloads/DownloadsCommon.sys.mjs",
+        DownloadsCommon: versionGE("146a1") ? "moz-src:///browser/components/downloads/DownloadsCommon.sys.mjs" : "resource:///modules/DownloadsCommon.sys.mjs",
         DownloadHistory: "resource://gre/modules/DownloadHistory.sys.mjs",
+        DownloadsViewUI: "resource:///modules/DownloadsViewUI.sys.mjs",
     });
     const
     [
@@ -111,10 +114,6 @@
     ]);
 
     const invalidChars = /[<>:"/\\|?*]/g;
-
-    const versionGE = (v) => {
-        return Services.vc.compare(Services.appinfo.version, v) >= 0;
-    }
 
     const processCSS = (css) => {
         if (versionGE("143a1")) {

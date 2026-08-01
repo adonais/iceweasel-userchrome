@@ -868,7 +868,11 @@ z-index: 2147483647 !important;`.trim();
 
         // 打开新标签
         static openNewTab() {
-            BrowserCommands.openTab();
+            if (typeof BrowserOpenTab === 'undefined') {
+                BrowserCommands.openTab();
+            } else {
+                BrowserOpenTab();
+            }
         }
 
         // 恢复关闭的标签
@@ -1030,7 +1034,7 @@ z-index: 2147483647 !important;`.trim();
 
         // 打开扩展窗口
         static openAddons() {
-            BrowserAddonUI.openAddonsMgr('addons://list/extension');
+            openTrustedLinkIn("about:addons", "tab", {inBackground: false, relatedToCurrent: true});
         }
 
         // 打开下载目录
