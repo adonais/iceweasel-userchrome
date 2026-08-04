@@ -379,7 +379,7 @@
             if (isTrue('userChromeJS.downloadPlus.enableDoubleClickToSave')) {
 
                 $('#save').addEventListener('dblclick', (event) => {
-                    const { dialog } = event.target.ownerGlobal;
+                    const { dialog } = event.target.documentGlobal || event.target.ownerGlobal || event.target.ownerDocument?.defaultView || window;
                     dialog.dialogElement('unknownContentType').getButton("accept").click();
                 });
             }
