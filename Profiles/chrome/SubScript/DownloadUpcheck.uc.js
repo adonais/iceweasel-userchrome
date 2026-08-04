@@ -281,9 +281,9 @@
                             // 先取消工具栏下载弹出面板, 下载后恢复
                             setBool("browser.download.alwaysOpenPanel", false);
                         }
+                        DownloadsCommon.deleteDownloadFiles(aDownload, 2);
                         // 取消本次下载以及删除历史记录
                         console.log("we delete [%s]", aDownload.source.url);
-                        DownloadsCommon.deleteDownloadFiles(aDownload, 2);
                     }
                 },
             

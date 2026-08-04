@@ -1034,7 +1034,11 @@ z-index: 2147483647 !important;`.trim();
 
         // 打开扩展窗口
         static openAddons() {
-            openTrustedLinkIn("about:addons", "tab", {inBackground: false, relatedToCurrent: true});
+            if (typeof BrowserOpenAddonsMgr !== 'undefined') {
+                BrowserOpenAddonsMgr("addons://list/extension");
+            } else {
+                BrowserAddonUI.openAddonsMgr('addons://list/extension');
+            }
         }
 
         // 打开下载目录
