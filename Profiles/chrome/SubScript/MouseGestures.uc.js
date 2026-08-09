@@ -1,6 +1,8 @@
 // ==UserScript==
-// @note adonais, 增加国际化语言支持, Lua脚本支持, Upcheck模块支持, Iceweasel浏览器专用
-// @note myfreeer,增加了当前手势图形显示 https://github.com/myfreeer/userChromeJS
+// @note adonais,        增加国际化语言支持, Lua脚本支持, Upcheck模块支持, Iceweasel浏览器专用
+// @note myfreeer,       增加了当前手势图形显示 https://github.com/myfreeer/userChromeJS
+// @async                true
+// @sandbox              true
 // @name                 Mousegestures.uc.js
 // @namespace            Mousegestures@gmail.com
 // @description          自定义鼠标手势
@@ -12,14 +14,14 @@
 // @charset              UTF-8
 // ==/UserScript==
 
-(() => {
+(async () => {
     'use strict';
 
     const lazy = {};
-    ChromeUtils.defineLazyGetter(lazy, 'L10n', () => {
+    await ChromeUtils.defineLazyGetter(lazy, 'L10n', () => {
         return new Localization(["branding/brand.ftl", "browser/preferences/preferences.ftl"], true);
     });
-    const {upcheck} = ChromeUtils.importESModule('resource://gre/modules/upcheck.sys.mjs');
+    const {upcheck} = await ChromeUtils.importESModule('resource://gre/modules/upcheck.sys.mjs');
     const
     [
         go_back,

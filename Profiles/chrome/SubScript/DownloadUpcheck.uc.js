@@ -33,6 +33,7 @@
 // @note            20250226 正式进入无 JSM 时代，永久删除文件功能未集成，请使用 removeFileFromDownloadManager.uc.js，下载规则暂时也不支持
 // @include         main
 // @sandbox         true
+// @async           true
 // @include         chrome://browser/content/places/places.xhtml
 // @include         chrome://mozapps/content/downloads/unknownContentType.xhtml
 // @include         chrome://browser/content/downloads/contentAreaDownloadsView.xhtml
@@ -47,14 +48,14 @@
     const lazy = {};
     let { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
     const Services = globalThis.Services;
-    const Downloads = globalThis.Downloads || ChromeUtils.importESModule("resource://gre/modules/Downloads.sys.mjs").Downloads;
-    const ctypes = globalThis.ctypes || ChromeUtils.importESModule("resource://gre/modules/ctypes.sys.mjs").ctypes;
-    const {upcheck} = ChromeUtils.importESModule('resource://gre/modules/upcheck.sys.mjs');
+    const Downloads = globalThis.Downloads || await ChromeUtils.importESModule("resource://gre/modules/Downloads.sys.mjs").Downloads;
+    const ctypes = globalThis.ctypes || await ChromeUtils.importESModule("resource://gre/modules/ctypes.sys.mjs").ctypes;
+    const {upcheck} = await ChromeUtils.importESModule('resource://gre/modules/upcheck.sys.mjs');
     const versionGE = (v) => {return Services.vc.compare(Services.appinfo.version, v) >= 0;}
-    ChromeUtils.defineLazyGetter(lazy, 'L10n', () => {
+    await ChromeUtils.defineLazyGetter(lazy, 'L10n', () => {
         return new Localization(["branding/brand.ftl", "browser/preferences/preferences.ftl"], true);
     });
-    ChromeUtils.defineESModuleGetters(this, {
+    await ChromeUtils.defineESModuleGetters(this, {
         DownloadsCommon: versionGE("146a1") ? "moz-src:///browser/components/downloads/DownloadsCommon.sys.mjs" : "resource:///modules/DownloadsCommon.sys.mjs",
         DownloadHistory: "resource://gre/modules/DownloadHistory.sys.mjs",
         DownloadsViewUI: "resource:///modules/DownloadsViewUI.sys.mjs",
@@ -252,7 +253,7 @@
                 setTimeout(this.createToolbarBtn, 2000, pbtn);
             }
             if (Number(upcheck.readini_portable("General", "DownloadTaskOver")) > 0) {
-                this.downloadIntegration();
+                await this.downloadIntegration();
             }
         },
         createToolbarBtn: async function(pbtn) {
@@ -260,7 +261,7 @@
                 CustomizableUI.createWidget(pbtn);
             } catch (e) { }
         },
-        downloadIntegration: function() {
+        downloadIntegration: async function() {
             const alwaysOp = isTrue("browser.download.alwaysOpenPanel", false);
             const downloadlisten = {
                 _list: null,
