@@ -88,11 +88,9 @@
 // Date 2008/03/23 12:00 80氏のフォルダ規則に対応, 0.8modバージョンにも対応
 //
 
-(function(){
+(async function(){
   "use strict";
-  var { AppConstants } = AppConstants || ChromeUtils.importESModule(
-  "resource://gre/modules/AppConstants.sys.mjs"
-  );
+  var { AppConstants } = AppConstants || await ChromeUtils.importESModule("resource://gre/modules/AppConstants.sys.mjs");
   // -- config --
   const EXCLUDE_CHROMEHIDDEN = false; //chromehiddenなwindow(popup等)ではロード: しないtrue, する[false]
   const USE_0_63_FOLDER = true; //0.63のフォルダ規則を使う[true], 使わないfalse
