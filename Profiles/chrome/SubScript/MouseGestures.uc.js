@@ -5,9 +5,8 @@
 // @sandbox              true
 // @name                 Mousegestures.uc.js
 // @namespace            Mousegestures@gmail.com
-// @description          自定义鼠标手势
 // @author               紫云飞&黒仪大螃蟹
-// @homepageURL          http://www.cnblogs.com/ziyunfei/archive/2011/12/15/2289504.html
+// @homepageURL          https://github.com/adonais/iceweasel-userchrome
 // @include              chrome://browser/content/browser.xhtml
 // @include              chrome://browser/content/browser.xul
 // @version              2021-01-27 workaround for firefox 85
