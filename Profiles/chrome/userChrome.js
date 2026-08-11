@@ -269,7 +269,7 @@ this.debug('Parsing getScripts: '+((new Date()).getTime()-Start) +'msec');
 
       //メタデータ収集
       function getScriptData(aContent,aFile){
-        var charset, description, async, sandbox;
+        var charset, description, async, sandbox, homepage;
         var header = (aContent.match(/^\/\/ ==UserScript==[ \t]*\n(?:.*\n)*?\/\/ ==\/UserScript==[ \t]*\n/m) || [""])[0];
         var match, rex = { include: [], exclude: []};
         while ((match = findNextRe.exec(header)))
@@ -301,6 +301,12 @@ this.debug('Parsing getScripts: '+((new Date()).getTime()-Start) +'msec');
           async = sandbox;
         }
 
+        homepage = "";
+        match = header.match(/\/\/ @homepageURL\b(.+)\s*/i);
+        if(match) {
+            homepage = match.length > 0 ? match[1].replace(/^\s+/,"") : "";
+        }
+
         match = header.match(/\/\/ @description\b(.+)\s*/i);
         description = "";
         //try
@@ -315,12 +321,11 @@ this.debug('Parsing getScripts: '+((new Date()).getTime()-Start) +'msec');
           filename: aFile.leafName,
           file: aFile,
           url: url,
-          //namespace: "",
+          homepageURL: homepage,
           charset: charset,
           description: description,
           async: async,
           sandbox: sandbox,
-          //code: aContent.replace(header, ""),
           regex: new RegExp("^" + exclude + "(" + (rex.include.join("|") || ".*") + ")$", "i")
         }
       }
