@@ -1,0 +1,2678 @@
+// ==UserScript==
+// @name            AddonsPage.uc.js
+// @description     UC脚本管理页面
+// @author          ywzhaiqi
+// @include         main
+// @charset         utf-8
+// @compatibility   Firefox 135+
+// @version         2026.07.25
+// @homepageURL     https://github.com/adonais/iceweasel-userchrome
+// @reviewURL       http://bbs.kafan.cn/thread-1617407-1-1.html
+// @async           true
+// @sandbox         true
+// @note            2026.07.25 Fx153 fix about:addons category navigation component migration
+// @note            2026.04.06 Fix multi-window provider handoff and add debug pref
+// @note            2025.04.04 Fx137 fix lazy is undefined
+// @note            2025.03.08 Add English / Japanese String
+// @note            2025.01.31 Remove Cu.import, per Bug 1881888 
+// @note            2023.07.12 Removed Services.jsm, per Bug 1780695
+// @note            2022.11.18 支持 fx-autoconfig
+// @note            2022.10.01 支持隐藏自身
+// @note            2022.09.27 Fx106
+// @note            2022.02.04 Fx98
+// @note            2021.03.31 Fx89
+// @note            2021.02.05 Fx87
+// @note            2021.01.30 Fx85
+// @note            2020.06.28 Fx78
+// @note            2019.12.07
+// @note            - 附件组件页面右键新增查看所在目录（支持扩展、主题、插件）、复制名字。Greasemonkey、Scriptish 自带已经存在
+// @note            - 附件组件详细信息页面新增GM脚本、扩展、主题安装地址和插件路径，右键即复制
+// @note            - 新增 uc 脚本管理页面
+// @note            - uc脚本管理界面
+// @note            - 启用/禁用 需要重启浏览器
+// @note            - 编辑命令需要首先设置 view_source.editor.path 的路径
+// @note            - 图标请自行添加样式，详细信息见主页
+// @note            其它信息见主页
+// ==/UserScript==
+(async function () {
+    "use strict";
+
+    const Services = globalThis.Services || await ChromeUtils.import("resource://gre/modules/Services.jsm").Services;
+    const apLazy = {};
+    try {
+        await ChromeUtils.defineESModuleGetters(apLazy, {
+              AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
+              AddonManagerPrivate: "resource://gre/modules/AddonManager.sys.mjs",
+        });
+    } catch (e) {
+        await XPCOMUtils.defineLazyModuleGetters(apLazy, {
+              AddonManager: "resource://gre/modules/AddonManager.jsm",
+              AddonManagerPrivate: "resource://gre/modules/AddonManager.jsm",
+        });
+    }
+    if (!window.AddonManager) {
+        window.AddonManager = apLazy.AddonManager;
+    }
+    if (!window.AddonManagerPrivate) {
+        window.AddonManagerPrivate = apLazy.AddonManagerPrivate;
+    }
+    await ChromeUtils.defineLazyGetter(apLazy, 'addons_l10n', () => {
+        return new Localization(["browser/preferences/preferences.ftl"], true);
+    });
+
+    const iconURL = "chrome://mozapps/skin/extensions/extensionGeneric.svg";  // uc 脚本列表的图标
+    const AM_FILENAME = Components.stack.filename.split("/").pop().split("?")[0];
+    const APP_VERSION = parseFloat(Services.appinfo.version);
+    const EXCLUED_SCRIPTS = [AM_FILENAME];
+    const LOG_PREFIX = "[AddonsPage_fx72]";
+    const UNLOAD_HANDLER_KEY = "__AddonsPageFx72UnloadHandler";
+    const DETAIL_OBSERVER_KEY = "__AddonsPageFx72DetailObserver";
+    const DETAIL_REFRESH_TIMER_KEY = "__AddonsPageFx72DetailRefreshTimer";
+    const DETAIL_REFRESH_TOKEN_KEY = "__AddonsPageFx72DetailRefreshToken";
+    const DETAIL_RENDERING_KEY = "__AddonsPageFx72DetailRendering";
+    const CATEGORY_OBSERVER_KEY = "__AddonsPageFx72CategoryObserver";
+    const CATEGORY_REFRESH_TIMER_KEY = "__AddonsPageFx72CategoryRefreshTimer";
+    const CATEGORY_VIEW_LISTENER_KEY = "__AddonsPageFx72CategoryViewListener";
+    const CATEGORY_READY_PROMISE_KEY = "__AddonsPageFx72CategoryReadyPromise";
+    const DOCUMENT_UNLOAD_HANDLER_KEY = "__AddonsPageFx72DocumentUnloadHandler";
+    const DOCUMENT_EVENT_CLEANUPS_KEY = "__AddonsPageFx72DocumentEventCleanups";
+    const DOCUMENT_INITIALIZED_KEY = "__AddonsPageFx72DocumentInitialized";
+    const MODERN_CATEGORY_ATTRIBUTE = "data-addons-page-category";
+    const MODERN_CATEGORY_VIEW_ATTRIBUTE = "data-addons-page-viewid";
+    const L10N_PATCHED_KEY = "__AddonsPageFx72L10nPatched";
+    const TAMPERMONKEY_VIEW_REGISTERED_KEY = "__AddonsPageFx72TampermonkeyViewRegistered";
+    const TAMPERMONKEY_VIEW_RESTORE_KEY = "__AddonsPageFx72TampermonkeyViewRestore";
+    const TAMPERMONKEY_CATEGORY_SYNC_TOKEN_KEY = "__AddonsPageFx72TampermonkeyCategorySyncToken";
+    const TAMPERMONKEY_IDS = [
+        "firefoxbeta@tampermonkey.net",
+        "firefox@tampermonkey.net",
+    ];
+    const TAMPERMONKEY_VIEW_TYPE = "tampermonkey";
+    const TAMPERMONKEY_VIEW_PARAM = "dashboard";
+    const TAMPERMONKEY_VIEW_ID = `addons://${TAMPERMONKEY_VIEW_TYPE}/${TAMPERMONKEY_VIEW_PARAM}`;
+    const TAMPERMONKEY_FALLBACK_VIEW_ID = "addons://list/extension";
+    const TAMPERMONKEY_LAST_CATEGORY_PREF = "extensions.ui.lastCategory";
+    const STYLUS_VIEW_REGISTERED_KEY = "__AddonsPageFx72StylusViewRegistered";
+    const STYLUS_VIEW_RESTORE_KEY = "__AddonsPageFx72StylusViewRestore";
+    const STYLUS_CATEGORY_SYNC_TOKEN_KEY = "__AddonsPageFx72StylusCategorySyncToken";
+    const STYLUS_IDS = [
+        "{7a7a4a92-a2a0-41d1-9fd7-1e92480d612d}",
+    ];
+    const STYLUS_VIEW_TYPE = "stylus";
+    const STYLUS_VIEW_PARAM = "manage";
+    const STYLUS_VIEW_ID = `addons://${STYLUS_VIEW_TYPE}/${STYLUS_VIEW_PARAM}`;
+    const STYLUS_FALLBACK_VIEW_ID = "addons://list/extension";
+    const DEBUG_PREF = "userChromeJS.AddonsPage_fx72.debug";
+    const DEBUG = (() => {
+        try {
+            return Services.prefs.getBoolPref(DEBUG_PREF);
+        } catch (e) {
+            return false;
+        }
+    })();
+
+    function debugLog (...args) {
+        if (!DEBUG) {
+            return;
+        }
+        try {
+            console.log(LOG_PREFIX, ...args);
+        } catch (e) {
+            try {
+                Services.console.logStringMessage([LOG_PREFIX, ...args.map(debugStringify)].join(" "));
+            } catch (ex) { }
+        }
+    }
+
+    function debugWarn (...args) {
+        if (!DEBUG) {
+            return;
+        }
+        try {
+            console.warn(LOG_PREFIX, ...args);
+        } catch (e) {
+            debugLog(...args);
+        }
+    }
+
+    function debugStringify (value) {
+        if (typeof value === "string") {
+            return value;
+        }
+        try {
+            return JSON.stringify(value);
+        } catch (e) {
+            return String(value);
+        }
+    }
+
+    if (window.AM_Helper) {  // 修改调试用，重新载入无需重启
+        window.AM_Helper.uninit();
+        delete window.AM_Helper;
+    }
+    if (window.userChromeJSAddon) {
+        window.userChromeJSAddon.uninit();
+        delete window.userChromeJSAddon;
+    }
+    if (window[UNLOAD_HANDLER_KEY]) {
+        window.removeEventListener("unload", window[UNLOAD_HANDLER_KEY], false);
+        delete window[UNLOAD_HANDLER_KEY];
+    }
+    const
+    [
+        addons_seteditorpath,
+        addons_edit,
+        addons_browsedirectory,
+        addons_openurl,
+        addons_copyname,
+        addons_userchromejs,
+        addons_path,
+        addons_installpage,
+        addons_homepage,
+        addons_mousegestures_description,
+        addons_downloadupcheck_description,
+        addons_autoactivatetab_description,
+        addons_rightclickclosetab_description,
+    ] = apLazy.addons_l10n.formatValuesSync(
+    [
+        'iceweasel_addons_seteditorpath',
+        'iceweasel_addons_edit',
+        'iceweasel_addons_browsedirectory',
+        'iceweasel_addons_openurl',
+        'iceweasel_addons_copyname',
+        'iceweasel_addons_userchromejs',
+        'iceweasel_addons_path',
+        'iceweasel_addons_installpage',
+        'iceweasel_addons_homepage',
+        'iceweasel_addons_mousegestures_description',
+        'iceweasel_addons_downloadupcheck_description',
+        'iceweasel_addons_autoactivatetab_description',
+        'iceweasel_addons_rightclickclosetab_description'
+    ]);
+
+    window.AM_Helper = {
+        addonsDocuments: new Set(),
+
+        async init () {
+            document.addEventListener("DOMContentLoaded", this, false);
+            const browsers = window.gBrowser && window.gBrowser.browsers;
+            if (!browsers) {
+                return;
+            }
+            for (const browser of browsers) {
+                try {
+                    const doc = browser.contentDocument;
+                    if (doc && doc.URL === "about:addons") {
+                        await this.setupAddonsPage(doc);
+                    }
+                } catch (e) {
+                    debugWarn("init(): existing about:addons lookup failed", e);
+                }
+            }
+        },
+        uninit () {
+            document.removeEventListener("DOMContentLoaded", this, false);
+            Array.from(this.addonsDocuments).forEach(doc => {
+                this.cleanupAddonsDocument(doc);
+            });
+            this.disconnectCategoryObserver(document);
+            this.disconnectDetailObserver(document);
+            const htmlBrowser = document.getElementById("html-view-browser");
+            if (htmlBrowser && htmlBrowser.contentDocument) {
+                this.disconnectCategoryObserver(htmlBrowser.contentDocument);
+                this.disconnectDetailObserver(htmlBrowser.contentDocument);
+            }
+        },
+        async handleEvent (event) {
+            switch (event.type) {
+                case "DOMContentLoaded":
+                    await this.onDOMContentLoaded(event);
+                    break;
+
+                case "click":
+                    await this.onClick(event);
+                    break;
+                case "toggle":
+                    await this.onChange(event);
+                    break;
+            }
+        },
+
+        async onDOMContentLoaded (event) {
+            const doc = event.target;
+            if (!["about:addons"].includes(doc.URL))
+                return;
+
+            await this.setupAddonsPage(doc);
+        },
+
+        async setupAddonsPage (doc) {
+            if (!doc || doc[DOCUMENT_INITIALIZED_KEY]) {
+                return;
+            }
+            doc[DOCUMENT_INITIALIZED_KEY] = true;
+
+            this.trackAddonsDocument(doc);
+
+            const htmlBrowser = doc.getElementById("html-view-browser");
+            if (htmlBrowser) {
+                const loadListener = event => {
+                    const cDoc = htmlBrowser.contentDocument;
+                    if (cDoc) {
+                        this.initializeAddonsDocument(cDoc, "htmlBrowser.load");
+                        this.ensureDetailObserver(cDoc);
+                        this.scheduleDetailInfoRefresh(cDoc, "htmlBrowser.load");
+                    }
+                };
+                this.addManagedEventListener(doc, htmlBrowser, "load", loadListener);
+
+                // Fx85- #html-view元素缺失导致无法通过loading属性检测过渡，因此改为事件驱动
+                const viewChangedListener = event => {
+                    const cDoc = htmlBrowser.contentDocument;
+                    if (cDoc) {
+                        this.injectCategory(cDoc);
+                        this.ensureDetailObserver(cDoc);
+                        this.injectView(cDoc);
+                        this.ensureTampermonkeyRoute(cDoc, "htmlBrowser.ViewChanged");
+                        this.ensureStylusRoute(cDoc, "htmlBrowser.ViewChanged");
+                    }
+                };
+                this.addManagedEventListener(doc, doc, "ViewChanged", viewChangedListener);
+
+            } else if (doc.querySelector('title[data-l10n-id="addons-page-title"]')) {
+                // Fx87-
+                this.initializeAddonsDocument(doc, "DOMContentLoaded");
+                this.ensureDetailObserver(doc);
+                this.scheduleDetailInfoRefresh(doc, "DOMContentLoaded");
+
+                const loadedEvent = event => {
+                    this.injectCategory(doc);
+                    this.injectView(doc);
+                    this.ensureTampermonkeyRoute(doc, event.type);
+                    this.ensureStylusRoute(doc, event.type);
+                };
+                this.addManagedEventListener(doc, doc, "ViewChanged", loadedEvent);   // -Fx88
+                this.addManagedEventListener(doc, doc, "view-loaded", loadedEvent);   // Fx89-
+            }
+        },
+
+        browseDir (aAddon) {
+            switch (aAddon.type) {
+                case "plugin":
+                    var pathes = aAddon.pluginFullpath;
+                    for (var i = 0; i < pathes.length; i++) {
+                        this.revealPath(pathes[i]);
+                    }
+                    return;
+                case "userchromejs":
+                    var file = aAddon._script.file;
+                    if (file.exists())
+                        file.reveal();
+                    return;
+            }
+
+            // addon
+            var nsLocalFile = Components.Constructor("@mozilla.org/file/local;1", "nsIFile", "initWithPath");
+
+            var dir = Services.dirsvc.get("ProfD", Ci.nsIFile);
+            dir.append("extensions");
+            dir.append(aAddon.id);
+            var fileOrDir = dir.path + (dir.exists() ? "" : ".xpi");
+            try {
+                (new nsLocalFile(fileOrDir)).reveal();
+            } catch (ex) {
+                var addonDir = /.xpi$/.test(fileOrDir) ? dir.parent : dir;
+                try {
+                    if (addonDir.exists()) {
+                        addonDir.launch();
+                    }
+                } catch (ex) {
+                    var uri = Services.io.newFileURI(addonDir);
+                    var protSvc = Cc["@mozilla.org/uriloader/external-protocol-service;1"].
+                        getService(Ci.nsIExternalProtocolService);
+                    protSvc.loadUrl(uri);
+                }
+            }
+        },
+        editScript (aAddon) {
+            if (aAddon.type == "userchromejs") {
+                var path = aAddon._script.file.path;
+                this.launchEditor(path);
+            }
+        },
+        launchEditor (path) {
+            var editor = Services.prefs.getStringPref("view_source.editor.path");
+            if (!editor) {
+                alert(addons_seteditorpath);
+                return;
+            }
+
+            var appfile = Cc['@mozilla.org/file/local;1'].createInstance(Ci.nsIFile);
+            appfile.initWithPath(editor);
+            var process = Cc['@mozilla.org/process/util;1'].createInstance(Ci.nsIProcess);
+            process.init(appfile);
+            process.runw(false, [path], 1, {});
+        },
+        copyName (aAddon) {
+            this.copyToClipboard(aAddon.name);
+        },
+
+        // Fx78: 针对无法本地化而采取的策略
+        replace_l10n_setAttributes (doc) {
+            if (!doc.l10n || doc[L10N_PATCHED_KEY]) return;
+
+            const tr1 = {
+                "userchromejs-heading": addons_userchromejs,
+                "addon-category-userchromejs": addons_userchromejs, // fx 106
+            }
+            const tr2 = {
+                "userchromejs-enabled-heading": "extension-enabled-heading",
+                "userchromejs-disabled-heading": "extension-disabled-heading",
+            };
+
+            const true_l10n_setAttributes = doc.l10n.setAttributes;
+            doc.l10n.setAttributes = (elem, id, ...args) => {
+                if (id in tr1) {
+                    elem.textContent = tr1[id];
+                } else {
+                    if (id in tr2) {
+                        id = tr2[id];
+                    }
+                    true_l10n_setAttributes.call(doc.l10n, elem, id, ...args);
+                }
+            }
+            doc[L10N_PATCHED_KEY] = true;
+        },
+
+        initializeAddonsDocument (doc, reason = "unknown") {
+            if (!doc) {
+                return;
+            }
+            this.trackAddonsDocument(doc);
+            this.replace_l10n_setAttributes(doc);
+            this.ensureTampermonkeyView(doc, reason);
+            this.ensureStylusView(doc, reason);
+            this.injectCategory(doc);
+            this.ensureTampermonkeyRoute(doc, reason);
+            this.ensureStylusRoute(doc, reason);
+        },
+
+        trackAddonsDocument (doc) {
+            if (!doc || this.addonsDocuments.has(doc)) {
+                return;
+            }
+
+            this.addonsDocuments.add(doc);
+            const win = doc.defaultView;
+            if (!win) {
+                return;
+            }
+            const unloadHandler = () => {
+                this.cleanupAddonsDocument(doc);
+            };
+            doc[DOCUMENT_UNLOAD_HANDLER_KEY] = unloadHandler;
+            win.addEventListener("unload", unloadHandler, { once: true });
+        },
+
+        addManagedEventListener (doc, target, type, listener, options) {
+            if (!doc || !target || typeof target.addEventListener !== "function") {
+                return;
+            }
+
+            target.addEventListener(type, listener, options);
+            if (!doc[DOCUMENT_EVENT_CLEANUPS_KEY]) {
+                doc[DOCUMENT_EVENT_CLEANUPS_KEY] = [];
+            }
+            doc[DOCUMENT_EVENT_CLEANUPS_KEY].push(() => {
+                target.removeEventListener(type, listener, options);
+            });
+        },
+
+        cleanupAddonsDocument (doc) {
+            if (!doc) {
+                return;
+            }
+
+            this.disconnectCategoryObserver(doc);
+            this.disconnectDetailObserver(doc);
+            this.restoreCustomView(doc, TAMPERMONKEY_VIEW_TYPE, TAMPERMONKEY_VIEW_RESTORE_KEY,
+                TAMPERMONKEY_VIEW_REGISTERED_KEY);
+            this.restoreCustomView(doc, STYLUS_VIEW_TYPE, STYLUS_VIEW_RESTORE_KEY,
+                STYLUS_VIEW_REGISTERED_KEY);
+            const eventCleanups = doc[DOCUMENT_EVENT_CLEANUPS_KEY];
+            if (eventCleanups) {
+                eventCleanups.splice(0).forEach(cleanup => {
+                    try {
+                        cleanup();
+                    } catch (e) { }
+                });
+                delete doc[DOCUMENT_EVENT_CLEANUPS_KEY];
+            }
+            const unloadHandler = doc[DOCUMENT_UNLOAD_HANDLER_KEY];
+            const win = doc.defaultView;
+            if (unloadHandler && win) {
+                win.removeEventListener("unload", unloadHandler);
+            }
+            delete doc[DOCUMENT_UNLOAD_HANDLER_KEY];
+            delete doc[DOCUMENT_INITIALIZED_KEY];
+            this.addonsDocuments.delete(doc);
+        },
+
+        restoreCustomView (doc, viewType, restoreKey, registeredKey) {
+            const win = doc && doc.defaultView;
+            if (!win) {
+                return;
+            }
+
+            const restore = win[restoreKey];
+            if (restore && win.gViewController && win.gViewController.views) {
+                if (restore.hadView) {
+                    win.gViewController.views[viewType] = restore.view;
+                } else {
+                    delete win.gViewController.views[viewType];
+                }
+            }
+            delete win[restoreKey];
+            delete win[registeredKey];
+        },
+
+        async getTampermonkeyAddon () {
+            for (const addonId of TAMPERMONKEY_IDS) {
+                try {
+                    const addon = await AddonManager.getAddonByID(addonId);
+                    if (addon && addon.isActive) {
+                        return addon;
+                    }
+                } catch (e) {
+                    debugWarn("getTampermonkeyAddon(): lookup failed", addonId, e);
+                }
+            }
+            return null;
+        },
+
+        async getStylusAddon () {
+            for (const addonId of STYLUS_IDS) {
+                try {
+                    const addon = await AddonManager.getAddonByID(addonId);
+                    if (addon && addon.isActive) {
+                        return addon;
+                    }
+                } catch (e) {
+                    debugWarn("getStylusAddon(): lookup failed", addonId, e);
+                }
+            }
+            return null;
+        },
+
+        getWebExtensionUUID (addonId) {
+            if (!addonId) {
+                return null;
+            }
+            try {
+                const raw = Services.prefs.getStringPref("extensions.webextensions.uuids", "");
+                if (!raw) {
+                    return null;
+                }
+                const uuids = JSON.parse(raw);
+                return typeof uuids[addonId] === "string" ? uuids[addonId] : null;
+            } catch (e) {
+                debugWarn("getTampermonkeyUUID(): failed", addonId, e);
+                return null;
+            }
+        },
+
+        getTampermonkeyDashboardURL (addon) {
+            if (!addon || !addon.id) {
+                return null;
+            }
+
+            const candidates = [];
+            if (addon.optionsURL) {
+                candidates.push(addon.optionsURL);
+            }
+            const uuid = this.getWebExtensionUUID(addon.id);
+            if (uuid) {
+                candidates.push(`moz-extension://${uuid}/options.html`);
+            }
+
+            for (const candidate of candidates) {
+                try {
+                    return new URL("options.html#nav=dashboard", candidate).href;
+                } catch (e) {
+                    debugWarn("getTampermonkeyDashboardURL(): invalid candidate", {
+                        id: addon.id,
+                        candidate,
+                    });
+                }
+            }
+            return null;
+        },
+
+        getStylusManageURL (addon) {
+            if (!addon || !addon.id) {
+                return null;
+            }
+
+            const candidates = [];
+            if (addon.optionsURL) {
+                candidates.push(addon.optionsURL);
+            }
+            const uuid = this.getWebExtensionUUID(addon.id);
+            if (uuid) {
+                candidates.push(`moz-extension://${uuid}/manage.html`);
+            }
+
+            for (const candidate of candidates) {
+                try {
+                    return new URL("manage.html", candidate).href;
+                } catch (e) {
+                    debugWarn("getStylusManageURL(): invalid candidate", {
+                        id: addon.id,
+                        candidate,
+                    });
+                }
+            }
+            return null;
+        },
+
+        async shouldShowTampermonkeyCategory () {
+            return !!(await this.getTampermonkeyAddon());
+        },
+
+        async shouldShowStylusCategory () {
+            return !!(await this.getStylusAddon());
+        },
+
+        loadAddonsView (doc, viewId, replace = false) {
+            const win = doc && doc.defaultView;
+            if (!win) {
+                return null;
+            }
+            if (win.gViewController && typeof win.gViewController.loadView === "function") {
+                return win.gViewController.loadView(viewId, replace);
+            }
+            if (typeof win.loadView === "function") {
+                return win.loadView(viewId);
+            }
+            return null;
+        },
+
+        openTampermonkeyDashboardTab (url) {
+            if (!url) {
+                return;
+            }
+            try {
+                if (typeof window.openTrustedLinkIn === "function") {
+                    window.openTrustedLinkIn(url, "tab");
+                    return;
+                }
+            } catch (e) {
+                debugWarn("openTampermonkeyDashboardTab(): openTrustedLinkIn failed", e);
+            }
+            this.openUrl(url);
+        },
+
+        openStylusManageTab (url) {
+            if (!url) {
+                return;
+            }
+            try {
+                if (typeof window.openTrustedLinkIn === "function") {
+                    window.openTrustedLinkIn(url, "tab");
+                    return;
+                }
+            } catch (e) {
+                debugWarn("openStylusManageTab(): openTrustedLinkIn failed", e);
+            }
+            this.openUrl(url);
+        },
+
+        createTampermonkeyView (doc, addon, dashboardURL) {
+            const fragment = doc.createDocumentFragment();
+            const container = $C(doc, "section", {
+                class: "tampermonkey-dashboard-view",
+            }, fragment);
+            const header = $C(doc, "div", {
+                class: "tampermonkey-dashboard-header",
+            }, container);
+
+            $C(doc, "h1", {
+                class: "tampermonkey-dashboard-title",
+                "#text": "Tampermonkey"
+            }, header);
+            $C(doc, "p", {
+                class: "tampermonkey-dashboard-subtitle",
+                "#text": addon && addon.name ? addon.name : "Tampermonkey"
+            }, header);
+            $C(doc, "p", {
+                class: "tampermonkey-dashboard-message",
+                "#text": "Opening Tampermonkey Console..."
+            }, container);
+            const link = $C(doc, "a", {
+                class: "tampermonkey-dashboard-link",
+                href: dashboardURL,
+                action: "AM-open-url",
+                "#text": dashboardURL
+            }, container);
+            link.addEventListener("click", this);
+
+            return fragment;
+        },
+
+        createStylusView (doc, addon, manageURL) {
+            const fragment = doc.createDocumentFragment();
+            const container = $C(doc, "section", {
+                class: "tampermonkey-dashboard-view",
+            }, fragment);
+            const header = $C(doc, "div", {
+                class: "tampermonkey-dashboard-header",
+            }, container);
+
+            $C(doc, "h1", {
+                class: "tampermonkey-dashboard-title",
+                "#text": "Stylus"
+            }, header);
+            $C(doc, "p", {
+                class: "tampermonkey-dashboard-subtitle",
+                "#text": addon && addon.name ? addon.name : "Stylus"
+            }, header);
+            $C(doc, "p", {
+                class: "tampermonkey-dashboard-message",
+                "#text": "Opening Stylus Management Page..."
+            }, container);
+            const link = $C(doc, "a", {
+                class: "tampermonkey-dashboard-link",
+                href: manageURL,
+                action: "AM-open-url",
+                "#text": manageURL
+            }, container);
+            link.addEventListener("click", this);
+
+            return fragment;
+        },
+
+        ensureTampermonkeyView (doc, reason = "unknown", attempt = 0) {
+            const win = doc && doc.defaultView;
+            if (!win) {
+                return;
+            }
+            if (!win.gViewController || typeof win.gViewController.defineView !== "function") {
+                if (attempt < 10) {
+                    win.setTimeout(() => {
+                        this.ensureTampermonkeyView(doc, reason, attempt + 1);
+                    }, attempt < 3 ? 60 : 120);
+                }
+                return;
+            }
+
+            const renderView = async (param) => {
+                const addon = await this.getTampermonkeyAddon();
+                const dashboardURL = addon && this.getTampermonkeyDashboardURL(addon);
+                if (param !== TAMPERMONKEY_VIEW_PARAM || !addon || !dashboardURL) {
+                    this.ensureTampermonkeyRoute(doc, "render");
+                    return doc.createDocumentFragment();
+                }
+                this.openTampermonkeyDashboardTab(dashboardURL);
+                this.ensureTampermonkeyRoute(doc, "render.open", true);
+                return this.createTampermonkeyView(doc, addon, dashboardURL);
+            };
+
+            if (!win[TAMPERMONKEY_VIEW_RESTORE_KEY]) {
+                const hadRegisteredView = !!win[TAMPERMONKEY_VIEW_REGISTERED_KEY];
+                win[TAMPERMONKEY_VIEW_RESTORE_KEY] = {
+                    hadView: !hadRegisteredView && !!(win.gViewController.views &&
+                        Object.prototype.hasOwnProperty.call(win.gViewController.views, TAMPERMONKEY_VIEW_TYPE)),
+                    view: hadRegisteredView ? undefined :
+                        win.gViewController.views && win.gViewController.views[TAMPERMONKEY_VIEW_TYPE],
+                };
+            }
+
+            if (win.gViewController.views && win.gViewController.views[TAMPERMONKEY_VIEW_TYPE]) {
+                win.gViewController.views[TAMPERMONKEY_VIEW_TYPE] = renderView;
+                win[TAMPERMONKEY_VIEW_REGISTERED_KEY] = true;
+                return;
+            }
+
+            if (win[TAMPERMONKEY_VIEW_REGISTERED_KEY]) {
+                return;
+            }
+
+            win.gViewController.defineView(TAMPERMONKEY_VIEW_TYPE, renderView);
+            win[TAMPERMONKEY_VIEW_REGISTERED_KEY] = true;
+            debugLog("ensureTampermonkeyView(): registered", {
+                reason,
+                href: String(doc.URL || ""),
+            });
+        },
+
+        ensureStylusView (doc, reason = "unknown", attempt = 0) {
+            const win = doc && doc.defaultView;
+            if (!win) {
+                return;
+            }
+            if (!win.gViewController || typeof win.gViewController.defineView !== "function") {
+                if (attempt < 10) {
+                    win.setTimeout(() => {
+                        this.ensureStylusView(doc, reason, attempt + 1);
+                    }, attempt < 3 ? 60 : 120);
+                }
+                return;
+            }
+
+            const renderView = async (param) => {
+                const addon = await this.getStylusAddon();
+                const manageURL = addon && this.getStylusManageURL(addon);
+                if (param !== STYLUS_VIEW_PARAM || !addon || !manageURL) {
+                    this.ensureStylusRoute(doc, "render");
+                    return doc.createDocumentFragment();
+                }
+                this.openStylusManageTab(manageURL);
+                this.ensureStylusRoute(doc, "render.open", true);
+                return this.createStylusView(doc, addon, manageURL);
+            };
+
+            if (!win[STYLUS_VIEW_RESTORE_KEY]) {
+                const hadRegisteredView = !!win[STYLUS_VIEW_REGISTERED_KEY];
+                win[STYLUS_VIEW_RESTORE_KEY] = {
+                    hadView: !hadRegisteredView && !!(win.gViewController.views &&
+                        Object.prototype.hasOwnProperty.call(win.gViewController.views, STYLUS_VIEW_TYPE)),
+                    view: hadRegisteredView ? undefined :
+                        win.gViewController.views && win.gViewController.views[STYLUS_VIEW_TYPE],
+                };
+            }
+
+            if (win.gViewController.views && win.gViewController.views[STYLUS_VIEW_TYPE]) {
+                win.gViewController.views[STYLUS_VIEW_TYPE] = renderView;
+                win[STYLUS_VIEW_REGISTERED_KEY] = true;
+                return;
+            }
+
+            if (win[STYLUS_VIEW_REGISTERED_KEY]) {
+                return;
+            }
+
+            win.gViewController.defineView(STYLUS_VIEW_TYPE, renderView);
+            win[STYLUS_VIEW_REGISTERED_KEY] = true;
+            debugLog("ensureStylusView(): registered", {
+                reason,
+                href: String(doc.URL || ""),
+            });
+        },
+
+        async syncTampermonkeyCategory (doc, reason = "unknown") {
+            const button = this.getCategoryButton(doc, "tampermonkey");
+            if (!button) {
+                return;
+            }
+
+            const token = `${Date.now()}:${Math.random()}`;
+            button[TAMPERMONKEY_CATEGORY_SYNC_TOKEN_KEY] = token;
+            const visible = await this.shouldShowTampermonkeyCategory();
+            if (button[TAMPERMONKEY_CATEGORY_SYNC_TOKEN_KEY] !== token) {
+                return;
+            }
+
+            button.hidden = !visible;
+            if (visible) {
+                if (!button.hasAttribute(MODERN_CATEGORY_ATTRIBUTE)) {
+                    button.removeAttribute("disabled");
+                }
+            } else {
+                if (!button.hasAttribute(MODERN_CATEGORY_ATTRIBUTE)) {
+                    button.setAttribute("disabled", "true");
+                }
+                this.ensureTampermonkeyRoute(doc, `${reason}.hidden`);
+            }
+        },
+
+        async syncStylusCategory (doc, reason = "unknown") {
+            const button = this.getCategoryButton(doc, "stylus");
+            if (!button) {
+                return;
+            }
+
+            const token = `${Date.now()}:${Math.random()}`;
+            button[STYLUS_CATEGORY_SYNC_TOKEN_KEY] = token;
+            const visible = await this.shouldShowStylusCategory();
+            if (button[STYLUS_CATEGORY_SYNC_TOKEN_KEY] !== token) {
+                return;
+            }
+
+            button.hidden = !visible;
+            if (visible) {
+                if (!button.hasAttribute(MODERN_CATEGORY_ATTRIBUTE)) {
+                    button.removeAttribute("disabled");
+                }
+            } else {
+                if (!button.hasAttribute(MODERN_CATEGORY_ATTRIBUTE)) {
+                    button.setAttribute("disabled", "true");
+                }
+                this.ensureStylusRoute(doc, `${reason}.hidden`);
+            }
+        },
+
+        getCategoryButton (doc, name) {
+            if (!doc || !name) {
+                return null;
+            }
+            return doc.querySelector(
+                `.category[name="${name}"], [${MODERN_CATEGORY_ATTRIBUTE}="${name}"]`
+            );
+        },
+
+        async ensureTampermonkeyRoute (doc, reason = "unknown", force = false) {
+            const win = doc && doc.defaultView;
+            if (!win) {
+                return;
+            }
+
+            const visible = await this.shouldShowTampermonkeyCategory();
+            if (visible && !force) {
+                return;
+            }
+
+            try {
+                if (Services.prefs.getStringPref(TAMPERMONKEY_LAST_CATEGORY_PREF, "") === TAMPERMONKEY_VIEW_ID) {
+                    Services.prefs.setStringPref(TAMPERMONKEY_LAST_CATEGORY_PREF, TAMPERMONKEY_FALLBACK_VIEW_ID);
+                }
+            } catch (e) {
+                debugWarn("ensureTampermonkeyRoute(): pref fallback failed", e);
+            }
+
+            try {
+                const historyState = win.history && win.history.state;
+                if (historyState && historyState.view === TAMPERMONKEY_VIEW_ID) {
+                    win.history.replaceState({
+                        ...historyState,
+                        view: TAMPERMONKEY_FALLBACK_VIEW_ID,
+                        previousView: historyState.previousView === TAMPERMONKEY_VIEW_ID ? null : historyState.previousView,
+                    }, "");
+                }
+            } catch (e) {
+                debugWarn("ensureTampermonkeyRoute(): history fallback failed", e);
+            }
+
+            if (win.gViewController && win.gViewController.currentViewId === TAMPERMONKEY_VIEW_ID) {
+                try {
+                    win.setTimeout(() => {
+                        const result = this.loadAddonsView(doc, TAMPERMONKEY_FALLBACK_VIEW_ID, true);
+                        if (result && typeof result.catch === "function") {
+                            result.catch(ex => console.error(ex));
+                        }
+                    }, 0);
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+        },
+
+        async ensureStylusRoute (doc, reason = "unknown", force = false) {
+            const win = doc && doc.defaultView;
+            if (!win) {
+                return;
+            }
+
+            const visible = await this.shouldShowStylusCategory();
+            if (visible && !force) {
+                return;
+            }
+
+            try {
+                if (Services.prefs.getStringPref(TAMPERMONKEY_LAST_CATEGORY_PREF, "") === STYLUS_VIEW_ID) {
+                    Services.prefs.setStringPref(TAMPERMONKEY_LAST_CATEGORY_PREF, STYLUS_FALLBACK_VIEW_ID);
+                }
+            } catch (e) {
+                debugWarn("ensureStylusRoute(): pref fallback failed", e);
+            }
+
+            try {
+                const historyState = win.history && win.history.state;
+                if (historyState && historyState.view === STYLUS_VIEW_ID) {
+                    win.history.replaceState({
+                        ...historyState,
+                        view: STYLUS_FALLBACK_VIEW_ID,
+                        previousView: historyState.previousView === STYLUS_VIEW_ID ? null : historyState.previousView,
+                    }, "");
+                }
+            } catch (e) {
+                debugWarn("ensureStylusRoute(): history fallback failed", e);
+            }
+
+            if (win.gViewController && win.gViewController.currentViewId === STYLUS_VIEW_ID) {
+                try {
+                    win.setTimeout(() => {
+                        const result = this.loadAddonsView(doc, STYLUS_FALLBACK_VIEW_ID, true);
+                        if (result && typeof result.catch === "function") {
+                            result.catch(ex => console.error(ex));
+                        }
+                    }, 0);
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+        },
+
+        disconnectDetailObserver (doc) {
+            if (!doc) {
+                return;
+            }
+
+            if (doc[DETAIL_REFRESH_TIMER_KEY] && doc.defaultView) {
+                doc.defaultView.clearTimeout(doc[DETAIL_REFRESH_TIMER_KEY]);
+                doc[DETAIL_REFRESH_TIMER_KEY] = 0;
+            }
+            if (doc[DETAIL_OBSERVER_KEY]) {
+                try {
+                    doc[DETAIL_OBSERVER_KEY].disconnect();
+                } catch (e) { }
+                delete doc[DETAIL_OBSERVER_KEY];
+            }
+            delete doc[DETAIL_RENDERING_KEY];
+            delete doc[DETAIL_REFRESH_TOKEN_KEY];
+        },
+
+        ensureDetailObserver (doc) {
+            if (!doc || doc[DETAIL_OBSERVER_KEY] || typeof MutationObserver !== "function") {
+                return;
+            }
+
+            const root = doc.getElementById("main") || doc.body;
+            if (!root) {
+                return;
+            }
+
+            const observer = new MutationObserver(() => {
+                if (doc[DETAIL_RENDERING_KEY]) {
+                    return;
+                }
+                this.scheduleDetailInfoRefresh(doc, "mutation");
+            });
+            observer.observe(root, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ["current-view", "loading"],
+            });
+            doc[DETAIL_OBSERVER_KEY] = observer;
+            debugLog("ensureDetailObserver(): attached", {
+                href: String(doc.URL || ""),
+            });
+        },
+
+        scheduleDetailInfoRefresh (doc, reason = "unknown", attempt = 0) {
+            if (!doc || !doc.defaultView) {
+                return;
+            }
+
+            const win = doc.defaultView;
+            const token = `${Date.now()}:${Math.random()}`;
+            doc[DETAIL_REFRESH_TOKEN_KEY] = token;
+            if (doc[DETAIL_REFRESH_TIMER_KEY]) {
+                win.clearTimeout(doc[DETAIL_REFRESH_TIMER_KEY]);
+            }
+
+            const run = () => {
+                if (doc[DETAIL_REFRESH_TOKEN_KEY] !== token) {
+                    return;
+                }
+
+                const applied = this.setUrlOrPath(doc);
+                if (!applied && attempt < 8) {
+                    const nextAttempt = attempt + 1;
+                    const delay = nextAttempt < 3 ? 80 : 160;
+                    doc[DETAIL_REFRESH_TIMER_KEY] = win.setTimeout(() => {
+                        this.scheduleDetailInfoRefresh(doc, reason, nextAttempt);
+                    }, delay);
+                    return;
+                }
+
+                doc[DETAIL_REFRESH_TIMER_KEY] = 0;
+                debugLog("scheduleDetailInfoRefresh(): completed", {
+                    reason,
+                    attempt,
+                    applied,
+                });
+            };
+
+            doc[DETAIL_REFRESH_TIMER_KEY] = win.setTimeout(run, attempt ? 40 : 0);
+        },
+
+        getDetailViewState (doc) {
+            const detail = doc.querySelector(
+                '#main [current-view="detail"], #main[current-view="detail"], addon-details, #main addon-details'
+            );
+            const card = (detail && detail.querySelector("addon-card")) ||
+                doc.querySelector('#main [current-view="detail"] addon-card, #main[current-view="detail"] addon-card, addon-details addon-card');
+            const addon = card && card.addon;
+            const section = (detail && detail.querySelector('section[name="details"]')) ||
+                doc.querySelector('#main [current-view="detail"] section[name="details"], #main[current-view="detail"] section[name="details"], addon-details section[name="details"]');
+
+            return {
+                detail,
+                card,
+                addon,
+                section,
+            };
+        },
+
+        injectView (doc) {
+            const header = doc.getElementById("page-header");
+            if (!header) return;
+            doc.querySelectorAll("addon-card").forEach(card => {
+                const addon = card.addon;
+                if (addon && addon.type === "userchromejs") {
+                    // 增加 enable/disable 开关
+                    if (!card.querySelector("moz-toggle.extension-enable-button")) {
+                        const toggle = doc.createElement("moz-toggle");
+                        toggle.className = "extension-enable-button";
+                        toggle.pressed = !addon.userDisabled;
+                        toggle.setAttribute("aria-label", "Enable");
+                        toggle.addEventListener("click", (e) => {e.stopPropagation();});
+                        toggle.addEventListener("toggle", this);
+                
+                        const name = card.querySelector(".addon-name-container") || card.querySelector(".card-heading") || card;
+                        if (name) {
+                            const moreBtn = name.querySelector(".more-options-button");
+                            if (moreBtn) {
+                                name.insertBefore(toggle, moreBtn);
+                            } else {
+                                // 如果找不到更多按钮，直接追加到容器末尾
+                                name.appendChild(toggle);
+                            }
+                        }
+                    }
+                }
+
+                /* 添加菜单 */
+                const optionMenu = card.querySelector('panel-list[role="menu"]');
+                if (optionMenu) {
+                    $C(doc, "panel-item-separator", {}, optionMenu);
+                    let item;
+
+                    if (addon.type === "userchromejs") {
+                        item = $C(doc, "panel-item", {
+                            action: "AM-edit-script",
+                            "#text": addons_edit,
+                        }, optionMenu);
+                        item.addEventListener("click", this, true);
+                    }
+
+                    item = $C(doc, "panel-item", {
+                        action: "AM-browse-dir",
+                        "#text": addons_browsedirectory
+                    }, optionMenu);
+                    item.addEventListener("click", this, true);
+
+                    if (this.getInstallURL(addon)) {
+                        item = $C(doc, "panel-item", {
+                            action: "AM-open-url",
+                            "#text": addons_openurl
+                        }, optionMenu);
+                        item.addEventListener("click", this, true);
+                    }
+
+                    item = $C(doc, "panel-item", {
+                        action: "AM-copy-name",
+                        "#text": addons_copyname
+                    }, optionMenu);
+                    item.addEventListener("click", this, true);
+                }
+            });
+
+            this.scheduleDetailInfoRefresh(doc, "injectView");
+        },
+
+        injectCategory (doc, attempt = 0) {
+            if (!doc) {
+                return;
+            }
+
+            const legacyCategories = doc.getElementById("categories");
+            const legacyExtensionButton = legacyCategories &&
+                legacyCategories.querySelector('.category[name="extension"]');
+            if (legacyCategories && legacyExtensionButton) {
+                this.injectLegacyCategory(doc, legacyCategories, legacyExtensionButton);
+                return;
+            }
+
+            const categoriesBox = doc.querySelector("categories-box");
+            if (!categoriesBox) {
+                if (attempt < 10) {
+                    this.scheduleCategoryRefresh(
+                        doc,
+                        "categories-box.pending",
+                        attempt < 3 ? 60 : 120,
+                        attempt + 1
+                    );
+                    return;
+                }
+                debugLog("injectCategory(): unsupported category structure", {
+                    href: String(doc.URL || ""),
+                });
+                return;
+            }
+
+            this.ensureCategoryObserver(doc, categoriesBox);
+            const pageNav = categoriesBox.querySelector("moz-page-nav");
+            const win = doc.defaultView;
+            const registry = win && win.customElements;
+            if (!pageNav) {
+                if (attempt < 10) {
+                    this.scheduleCategoryRefresh(
+                        doc,
+                        "moz-page-nav.pending",
+                        attempt < 3 ? 60 : 120,
+                        attempt + 1
+                    );
+                } else {
+                    debugLog("injectCategory(): moz-page-nav unavailable", {
+                        href: String(doc.URL || ""),
+                    });
+                }
+                return;
+            }
+            if (!registry || !registry.get("moz-page-nav-button")) {
+                this.ensureModernCategoryReady(doc, registry);
+                return;
+            }
+
+            this.ensureCategoryViewListener(doc);
+            this.injectModernCategory(doc, pageNav);
+            this.syncModernCategorySelection(doc);
+            this.syncTampermonkeyCategory(doc, "injectCategory.modern");
+            this.syncStylusCategory(doc, "injectCategory.modern");
+        },
+
+        injectLegacyCategory (doc, cat, extensionBtn) {
+            // Fx76 about:addons解决侧边栏HTML化后类别无法自动插入的问题
+            if (!doc.querySelector('.category[name="userchromejs"]')) {
+                // 复制扩展按钮来创建
+                const ucjsBtn = extensionBtn.cloneNode(false);
+                ucjsBtn.removeAttribute("aria-selected");
+                ucjsBtn.removeAttribute("tabindex");
+                ucjsBtn.removeAttribute("data-l10n-id");
+                ucjsBtn.setAttribute("viewid", "addons://list/userchromejs");
+                ucjsBtn.setAttribute("name", "userchromejs");
+                ucjsBtn.setAttribute("title", addons_userchromejs);
+
+                $C(doc, "span", {
+                    class: "category-name",
+                    "#text": addons_userchromejs
+                }, ucjsBtn);
+
+                const localeBtn = cat.querySelector('.category[name="locale"]');
+                (localeBtn ? localeBtn.parentElement : cat).insertBefore(ucjsBtn, localeBtn || null);
+            }
+
+            if (!doc.querySelector('.category[name="tampermonkey"]')) {
+                const tmBtn = extensionBtn.cloneNode(false);
+                tmBtn.removeAttribute("aria-selected");
+                tmBtn.removeAttribute("tabindex");
+                tmBtn.removeAttribute("data-l10n-id");
+                tmBtn.setAttribute("viewid", TAMPERMONKEY_VIEW_ID);
+                tmBtn.setAttribute("name", "tampermonkey");
+                tmBtn.setAttribute("title", "Tampermonkey");
+                tmBtn.hidden = true;
+
+                $C(doc, "span", {
+                    class: "category-name",
+                    "#text": "Tampermonkey"
+                }, tmBtn);
+
+                const ucjsBtn = cat.querySelector('.category[name="userchromejs"]');
+                const localeBtn = cat.querySelector('.category[name="locale"]');
+                const referenceNode = (ucjsBtn && ucjsBtn.nextSibling) || localeBtn || null;
+                cat.insertBefore(tmBtn, referenceNode);
+            }
+            if (!doc.querySelector('.category[name="stylus"]')) {
+                const stylusBtn = extensionBtn.cloneNode(false);
+                stylusBtn.removeAttribute("aria-selected");
+                stylusBtn.removeAttribute("tabindex");
+                stylusBtn.removeAttribute("data-l10n-id");
+                stylusBtn.setAttribute("viewid", STYLUS_VIEW_ID);
+                stylusBtn.setAttribute("name", "stylus");
+                stylusBtn.setAttribute("title", "Stylus");
+                stylusBtn.hidden = true;
+
+                $C(doc, "span", {
+                    class: "category-name",
+                    "#text": "Stylus"
+                }, stylusBtn);
+
+                const tmBtn = cat.querySelector('.category[name="tampermonkey"]');
+                const localeBtn = cat.querySelector('.category[name="locale"]');
+                const referenceNode = (tmBtn && tmBtn.nextSibling) || localeBtn || null;
+                cat.insertBefore(stylusBtn, referenceNode);
+            }
+            this.syncTampermonkeyCategory(doc, "injectCategory");
+            this.syncStylusCategory(doc, "injectCategory");
+        },
+
+        injectModernCategory (doc, pageNav) {
+            const categories = [
+                {
+                    name: "userchromejs",
+                    viewId: "addons://list/userchromejs",
+                    title: addons_userchromejs,
+                    hidden: false,
+                },
+                {
+                    name: "tampermonkey",
+                    viewId: TAMPERMONKEY_VIEW_ID,
+                    title: "Tampermonkey",
+                    hidden: true,
+                },
+                {
+                    name: "stylus",
+                    viewId: STYLUS_VIEW_ID,
+                    title: "Stylus",
+                    hidden: true,
+                },
+            ];
+
+            for (const category of categories) {
+                if (this.getCategoryButton(doc, category.name)) {
+                    continue;
+                }
+
+                const button = doc.createElement("moz-page-nav-button");
+                button.setAttribute(MODERN_CATEGORY_ATTRIBUTE, category.name);
+                button.setAttribute(MODERN_CATEGORY_VIEW_ATTRIBUTE, category.viewId);
+                button.setAttribute("view", category.name);
+                button.setAttribute("iconsrc", "chrome://mozapps/skin/extensions/category-extensions.svg");
+                button.setAttribute("title", category.title);
+                button.hidden = category.hidden;
+                button.appendChild(doc.createTextNode(category.title));
+                button.addEventListener("change-view", event => {
+                    event.stopPropagation();
+                    pageNav.currentView = category.name;
+                    const result = this.loadAddonsView(doc, category.viewId);
+                    if (result && typeof result.catch === "function") {
+                        result.catch(error => {
+                            debugWarn("injectModernCategory(): loadView failed", {
+                                viewId: category.viewId,
+                                error,
+                            });
+                        });
+                    }
+                });
+
+                const referenceNode = pageNav.querySelector("#category-locale") ||
+                    pageNav.querySelector('[slot="secondary-nav"]');
+                pageNav.insertBefore(button, referenceNode || null);
+            }
+        },
+
+        ensureModernCategoryReady (doc, registry) {
+            if (!doc || !registry || typeof registry.whenDefined !== "function" ||
+                doc[CATEGORY_READY_PROMISE_KEY]) {
+                return;
+            }
+
+            doc[CATEGORY_READY_PROMISE_KEY] = registry.whenDefined("moz-page-nav-button").then(() => {
+                delete doc[CATEGORY_READY_PROMISE_KEY];
+                if (this.addonsDocuments.has(doc)) {
+                    this.scheduleCategoryRefresh(doc, "moz-page-nav-button.defined");
+                }
+            }).catch(error => {
+                delete doc[CATEGORY_READY_PROMISE_KEY];
+                debugWarn("ensureModernCategoryReady(): whenDefined failed", error);
+            });
+        },
+
+        ensureCategoryObserver (doc, categoriesBox) {
+            if (!doc || !categoriesBox || typeof MutationObserver !== "function") {
+                return;
+            }
+
+            const current = doc[CATEGORY_OBSERVER_KEY];
+            if (current && current.root === categoriesBox) {
+                return;
+            }
+            if (current) {
+                current.observer.disconnect();
+            }
+
+            const observer = new MutationObserver(() => {
+                this.scheduleCategoryRefresh(doc, "categories-box.mutation");
+            });
+            observer.observe(categoriesBox, {
+                subtree: true,
+                childList: true,
+            });
+            doc[CATEGORY_OBSERVER_KEY] = {
+                observer,
+                root: categoriesBox,
+            };
+        },
+
+        scheduleCategoryRefresh (doc, reason = "unknown", delay = 0, attempt = 0) {
+            if (!doc || !doc.defaultView || doc[CATEGORY_REFRESH_TIMER_KEY]) {
+                return;
+            }
+
+            doc[CATEGORY_REFRESH_TIMER_KEY] = doc.defaultView.setTimeout(() => {
+                doc[CATEGORY_REFRESH_TIMER_KEY] = 0;
+                this.injectCategory(doc, attempt);
+                debugLog("scheduleCategoryRefresh(): completed", {
+                    reason,
+                    href: String(doc.URL || ""),
+                });
+            }, delay);
+        },
+
+        ensureCategoryViewListener (doc) {
+            if (!doc || doc[CATEGORY_VIEW_LISTENER_KEY]) {
+                return;
+            }
+
+            const listener = () => {
+                this.syncModernCategorySelection(doc);
+            };
+            doc.addEventListener("view-selected", listener);
+            doc[CATEGORY_VIEW_LISTENER_KEY] = listener;
+        },
+
+        syncModernCategorySelection (doc) {
+            if (!doc || !doc.defaultView) {
+                return;
+            }
+
+            const pageNav = doc.querySelector("categories-box moz-page-nav");
+            const viewController = doc.defaultView.gViewController;
+            if (!pageNav || !viewController) {
+                return;
+            }
+
+            const currentViewId = viewController.currentViewId;
+            const button = Array.from(
+                pageNav.querySelectorAll(`[${MODERN_CATEGORY_VIEW_ATTRIBUTE}]`)
+            ).find(candidate =>
+                candidate.getAttribute(MODERN_CATEGORY_VIEW_ATTRIBUTE) === currentViewId
+            );
+            if (button) {
+                pageNav.currentView = button.getAttribute("view");
+            }
+        },
+
+        disconnectCategoryObserver (doc) {
+            if (!doc) {
+                return;
+            }
+
+            if (doc[CATEGORY_REFRESH_TIMER_KEY] && doc.defaultView) {
+                doc.defaultView.clearTimeout(doc[CATEGORY_REFRESH_TIMER_KEY]);
+            }
+            delete doc[CATEGORY_REFRESH_TIMER_KEY];
+
+            const current = doc[CATEGORY_OBSERVER_KEY];
+            if (current) {
+                try {
+                    current.observer.disconnect();
+                } catch (e) { }
+                delete doc[CATEGORY_OBSERVER_KEY];
+            }
+
+            const listener = doc[CATEGORY_VIEW_LISTENER_KEY];
+            if (listener) {
+                doc.removeEventListener("view-selected", listener);
+                delete doc[CATEGORY_VIEW_LISTENER_KEY];
+            }
+            delete doc[CATEGORY_READY_PROMISE_KEY];
+
+            doc.querySelectorAll(`[${MODERN_CATEGORY_ATTRIBUTE}]`).forEach(node => {
+                node.remove();
+            });
+        },
+
+        getTargetAddon (target) {
+            const card = target.closest("[addon-id]");
+            return (card && card.addon) ? card.addon : null;
+        },
+
+        async onClick (event) {
+            event.stopPropagation();
+            const target = event.target;
+            const action = target.getAttribute("action");
+            const addon = this.getTargetAddon(target);
+            if (action === "AM-open-url") {
+                event.preventDefault();
+                const href = target.getAttribute("href");
+                const url = href || (addon && this.getInstallURL(addon));
+                if (url) {
+                    this.openUrl(url);
+                }
+                return;
+            }
+            if (action && addon) {
+                switch (action) {
+                    case "AM-edit-script":
+                        this.editScript(addon);
+                        break;
+                    case "AM-browse-dir":
+                        this.browseDir(addon);
+                        break;
+                    case "AM-copy-name":
+                        this.copyName(addon);
+                        break;
+                }
+            }
+
+            const panel = target.closest("panel-list");
+            if (panel && panel.hasAttribute("open")) {
+                panel.removeAttribute("open");
+            }
+        },
+
+        async onChange (event) {
+            event.stopPropagation();
+            event.preventDefault();
+            const target = event.target;
+            const addon = this.getTargetAddon(target);
+            if (addon) {
+                if (target.pressed) {
+                    await addon.enable();
+                } else {
+                    await addon.disable();
+                }
+            }
+        },
+
+        getInstallURL (aAddon) {
+            if (!aAddon) return null;
+
+            var url = null;
+            switch (aAddon.type) {
+                case "extension":
+                case "theme":
+                    url = (/*aAddon.contributionURL ||*/ aAddon.reviewURL) || null;
+                    return url && url.replace(/\/developers|\/reviews/g, "") || (aAddon.creator && aAddon.creator.url);
+                case "greasemonkey-user-script":
+                    return aAddon._script._downloadURL || aAddon._script._updateURL;
+                case "userscript":
+                    url = aAddon._downloadURL || aAddon._updateURL;
+                    return url;
+                default:
+                    return aAddon.homepageURL;
+            }
+        },
+
+        getPath (aAddon) {
+            if (!aAddon) return false;
+
+            let path = aAddon.pluginFullpath;
+            if (!path && aAddon._script && aAddon._script.file) {
+                path = aAddon._script.file.path;
+            }
+            if (Array.isArray(path)) {
+                path = path[0];
+            }
+            return path || false;
+        },
+
+        getOptionsURL (aAddon) {
+            if (!aAddon) return null;
+
+            return aAddon.optionsURL ||
+                (aAddon._script && aAddon._script.optionsURL) ||
+                null;
+        },
+
+        getBackendLabel (aAddon) {
+            if (!aAddon || !aAddon._backend || !aAddon._backend.kind) {
+                return null;
+            }
+
+            switch (aAddon._backend.kind) {
+                case "userChrome_js":
+                    return "userChrome.js";
+                case "_uc":
+                    return "_uc.js";
+                case "_ucUtils":
+                    return "_ucUtils";
+                default:
+                    return aAddon._backend.kind;
+            }
+        },
+
+        getNoteValue (aAddon) {
+            if (!aAddon) {
+                return null;
+            }
+
+            const value = aAddon.note ||
+                aAddon.notes ||
+                (aAddon._script && (aAddon._script.note || aAddon._script.notes));
+            if (Array.isArray(value)) {
+                return value.filter(Boolean).join("\n");
+            }
+            return value || null;
+        },
+
+        getDetailRows (aAddon) {
+            if (!aAddon) return [];
+
+            const installURL = this.getInstallURL(aAddon);
+            const pluginPath = this.getPath(aAddon);
+            const rows = [];
+            const pushRow = (id, label, value, isLink = false) => {
+                if (!value) return;
+                rows.push({ id, label, value, isLink });
+            };
+
+            switch (aAddon.type) {
+                case "extension":
+                case "theme":
+                case "greasemonkey-user-script":
+                    pushRow("install-page", addons_installpage, installURL, true);
+                    break;
+                case "plugin":
+                    pushRow("path", addons_path, pluginPath, true);
+                    break;
+                case "userchromejs":
+                    pushRow("path", addons_path, pluginPath, true);
+                    break;
+                default:
+                    pushRow("homepage", addons_homepage, aAddon.homepageURL, true);
+                    pushRow("path", addons_path, pluginPath, true);
+                    break;
+            }
+
+            return rows;
+        },
+
+        appendDetailRow (doc, section, rowInfo) {
+            const row = $C(doc, "div", {
+                id: `detail-${rowInfo.id}-row`,
+                class: "addon-detail-row userchromejs-detail-row",
+                style: "display: flex; align-items: flex-start; gap: 12px;",
+            });
+            $C(doc, "label", {
+                class: "detail-row-label",
+                style: "flex: 0 0 88px; min-width: 88px; margin: 0; text-align: left;",
+                "#text": rowInfo.label
+            }, row);
+            const valueBox = $C(doc, "div", {
+                class: "userchromejs-detail-value",
+                style: "flex: 1 1 auto; min-width: 0;",
+            }, row);
+
+            if (rowInfo.isLink) {
+                const link = $C(doc, "a", {
+                    href: rowInfo.value,
+                    action: "AM-open-url",
+                    style: "display: block; text-align: left; overflow-wrap: anywhere; word-break: break-word;",
+                    "#text": rowInfo.value
+                }, valueBox);
+                link.addEventListener("click", this);
+            } else {
+                $C(doc, "span", {
+                    style: `display: block; text-align: left; overflow-wrap: anywhere; word-break: break-word;${rowInfo.value.includes("\n") ? " white-space: pre-wrap;" : ""}`,
+                    "#text": rowInfo.value
+                }, valueBox);
+            }
+
+            section.appendChild(row);
+        },
+
+        normalizeDetailText (text) {
+            return String(text || "")
+                .replace(/\s+/g, " ")
+                .trim();
+        },
+
+        syncDescriptionVisibility (detailState) {
+            if (!detailState || !detailState.card) {
+                return;
+            }
+
+            const root = detailState.card;
+            const contents = root.querySelector(".card-contents");
+            const summary = root.querySelector(".addon-description, addon-description");
+            const detailDescription = root.querySelector(".addon-detail-description, addon-detail-description");
+            const detailWrapper = root.querySelector(".addon-detail-description-wrapper");
+            if (!detailDescription) {
+                return;
+            }
+
+            const shouldHide = !!detailState.addon &&
+                detailState.addon.type === "userchromejs" &&
+                summary &&
+                this.normalizeDetailText(summary.textContent) &&
+                this.normalizeDetailText(summary.textContent) === this.normalizeDetailText(detailDescription.textContent);
+
+            if (detailWrapper) {
+                detailWrapper.hidden = shouldHide;
+            } else {
+                detailDescription.hidden = shouldHide;
+            }
+            if (contents) {
+                contents.style.paddingBottom = shouldHide ? "8px" : "";
+            }
+        },
+
+        setUrlOrPath (doc) {
+            const detailState = this.getDetailViewState(doc);
+            const addon = detailState.addon;
+            const section = detailState.section;
+            if (!addon || !section) {
+                debugLog("setUrlOrPath(): detail not ready", {
+                    hasDetail: !!detailState.detail,
+                    hasCard: !!detailState.card,
+                    hasAddon: !!addon,
+                    hasSection: !!section,
+                });
+                return false;
+            }
+
+            doc[DETAIL_RENDERING_KEY] = true;
+            section.querySelectorAll(".userchromejs-detail-row").forEach(node => node.remove());
+
+            const rows = this.getDetailRows(addon);
+            rows.forEach(rowInfo => this.appendDetailRow(doc, section, rowInfo));
+            this.syncDescriptionVisibility(detailState);
+            if (doc.defaultView) {
+                doc.defaultView.setTimeout(() => {
+                    delete doc[DETAIL_RENDERING_KEY];
+                }, 0);
+            } else {
+                delete doc[DETAIL_RENDERING_KEY];
+            }
+            debugLog("setUrlOrPath(): rows rendered", {
+                id: addon.id || null,
+                type: addon.type || null,
+                count: rows.length,
+            });
+            return true;
+        },
+
+        openUrl (url) {
+            if (/^(https?|about|chrome|resource|file|moz-extension):/i.test(url)) {
+                openURL(url);
+            } else {
+                this.revealPath(url);
+            }
+        },
+
+        revealPath (path) {
+            var file = Cc['@mozilla.org/file/local;1'].createInstance(Ci.nsIFile);
+            file.initWithPath(path);
+            if (file.exists())
+                file.reveal();
+        },
+        copyToClipboard (aString) {
+            Cc["@mozilla.org/widget/clipboardhelper;1"].
+                getService(Ci.nsIClipboardHelper).copyString(aString);
+        }
+    };
+
+    window.userChromeJSAddon = {
+        scripts: [],
+        unloads: [],
+        isProviderOwner: false,
+        iconURLCache: new Map(),
+        iconBlobURLs: new Set(),
+
+        async init () {
+            const hasType = this.isAddonTypeRegistered();
+            debugLog("init()", {
+                href: String(window.location),
+                hasAddonType: !!hasType,
+            });
+            this.logBackendDiagnostics("init(): backend diagnostics", window);
+            this.initScripts();
+            if (hasType) {
+                debugLog("provider already registered, skip registerProvider()");
+            } else {
+                this.registerProvider();
+                this.addStyle();
+            }
+        },
+        isAddonTypeRegistered () {
+            try {
+                if (typeof AddonManager.hasAddonType === "function") {
+                    return AddonManager.hasAddonType("userchromejs");
+                }
+            } catch (ex) {
+                console.error(ex);
+            }
+            return !!(AddonManager.addonTypes &&
+                Object.prototype.hasOwnProperty.call(AddonManager.addonTypes, "userchromejs"));
+        },
+        ensureProviderRegistration () {
+            if (this.isAddonTypeRegistered()) {
+                debugLog("ensureProviderRegistration(): provider already registered");
+                return false;
+            }
+            debugLog("ensureProviderRegistration(): registering provider in this window", {
+                href: String(window.location),
+            });
+            this.registerProvider();
+            this.addStyle();
+            return true;
+        },
+        handoffProviderToOtherWindow () {
+            const enumerator = Services.wm.getEnumerator("navigator:browser");
+            while (enumerator.hasMoreElements()) {
+                const win = enumerator.getNext();
+                if (!win || win === window || win.closed) {
+                    continue;
+                }
+                try {
+                    if (win.userChromeJSAddon &&
+                        typeof win.userChromeJSAddon.ensureProviderRegistration === "function") {
+                        const adopted = win.userChromeJSAddon.ensureProviderRegistration();
+                        if (adopted) {
+                            debugLog("handoffProviderToOtherWindow(): provider adopted", {
+                                href: String(win.location || ""),
+                            });
+                        }
+                        return;
+                    }
+                } catch (ex) {
+                    console.error(ex);
+                }
+            }
+            debugLog("handoffProviderToOtherWindow(): no other window available");
+        },
+        uninit () {
+            debugLog("uninit()", {
+                href: String(window.location),
+                unloadCount: this.unloads.length,
+            });
+            this.releaseIconURLs();
+            this.scripts = [];
+            this.unloads.splice(0).forEach(function (func) { func(); });
+        },
+        releaseIconURLs () {
+            this.iconBlobURLs.forEach(url => {
+                try {
+                    URL.revokeObjectURL(url);
+                } catch (e) { }
+            });
+            this.iconBlobURLs.clear();
+            this.iconURLCache.clear();
+        },
+        normalizeIconURL (url) {
+            if (!url || typeof url !== "string") {
+                return iconURL;
+            }
+            if (!url.startsWith("data:")) {
+                return url;
+            }
+            if (this.iconURLCache.has(url)) {
+                return this.iconURLCache.get(url);
+            }
+
+            try {
+                const match = url.match(/^data:([^;,]+)?(;base64)?,(.*)$/i);
+                if (!match) {
+                    return url;
+                }
+                const mime = match[1] || "application/octet-stream";
+                const isBase64 = !!match[2];
+                const body = match[3] || "";
+                const bytes = isBase64
+                    ? Uint8Array.from(atob(body), c => c.charCodeAt(0))
+                    : new TextEncoder().encode(decodeURIComponent(body));
+                const blobURL = URL.createObjectURL(new Blob([bytes], { type: mime }));
+                this.iconBlobURLs.add(blobURL);
+                this.iconURLCache.set(url, blobURL);
+                return blobURL;
+            } catch (e) {
+                console.error(e);
+                return url;
+            }
+        },
+        describeWindow (win) {
+            if (!win || win.closed) {
+                return {
+                    href: null,
+                    closed: true,
+                };
+            }
+
+            const info = {
+                href: null,
+                hasUserChromeJs: false,
+                ucjsDone: false,
+                ucjsScripts: null,
+                ucjsOverlays: null,
+                hasUc: false,
+                ucIsFaked: null,
+                ucScripts: null,
+                hasUcUtils: false,
+            };
+
+            try {
+                info.href = String(win.location);
+            } catch (e) { }
+            try {
+                info.hasUserChromeJs = !!win.userChrome_js;
+                if (win.userChrome_js) {
+                    info.ucjsDone = !!win.userChrome_js.getScriptsDone;
+                    info.ucjsScripts = Array.isArray(win.userChrome_js.scripts) ? win.userChrome_js.scripts.length : null;
+                    info.ucjsOverlays = Array.isArray(win.userChrome_js.overlays) ? win.userChrome_js.overlays.length : null;
+                }
+            } catch (e) { }
+            try {
+                info.hasUc = !!win._uc;
+                if (win._uc) {
+                    info.ucIsFaked = !!win._uc.isFaked;
+                    info.ucScripts = win._uc.scripts ? Object.keys(win._uc.scripts).length : null;
+                }
+            } catch (e) { }
+            try {
+                info.hasUcUtils = typeof win._ucUtils === "object" && !!win._ucUtils;
+            } catch (e) { }
+
+            return info;
+        },
+        dumpWindowState (label, preferredWindow) {
+            debugWarn(label, this.getLiveBrowserWindows(preferredWindow).map(win => this.describeWindow(win)));
+        },
+        collectBackendDiagnostics (preferredWindow) {
+            return this.getLiveBrowserWindows(preferredWindow).map(win => {
+                const info = this.describeWindow(win);
+                let backend = null;
+                let rawCount = null;
+
+                try {
+                    backend = this.getBackendFromWindow(win);
+                    if (backend) {
+                        rawCount = this.getBackendScripts(backend).length;
+                    }
+                } catch (e) {
+                    rawCount = "error: " + e;
+                }
+
+                return {
+                    href: info.href,
+                    userChrome_js: {
+                        exists: info.hasUserChromeJs,
+                        done: info.ucjsDone,
+                        scripts: info.ucjsScripts,
+                        overlays: info.ucjsOverlays,
+                    },
+                    _uc: {
+                        exists: info.hasUc,
+                        isFaked: info.ucIsFaked,
+                        scripts: info.ucScripts,
+                    },
+                    _ucUtils: info.hasUcUtils,
+                    detectedBackend: backend ? backend.kind : null,
+                    backendScriptCount: rawCount,
+                };
+            });
+        },
+        logBackendDiagnostics (label, preferredWindow) {
+            debugWarn(label, this.collectBackendDiagnostics(preferredWindow));
+        },
+        getLiveBrowserWindows (preferredWindow) {
+            const wins = [];
+            const seen = new Set();
+            const appendWindow = win => {
+                if (!win || win.closed || seen.has(win)) {
+                    return;
+                }
+                try {
+                    if (win.document.documentElement.getAttribute("windowtype") !== "navigator:browser") {
+                        return;
+                    }
+                } catch (e) {
+                    return;
+                }
+                seen.add(win);
+                wins.push(win);
+            };
+
+            appendWindow(preferredWindow);
+            appendWindow(window);
+
+            const enumerator = Services.wm.getEnumerator("navigator:browser");
+            while (enumerator.hasMoreElements()) {
+                appendWindow(enumerator.getNext());
+            }
+
+            return wins;
+        },
+        getBackendFromWindow (win) {
+            try {
+                if (win.userChrome_js) {
+                    const ucjs = win.userChrome_js;
+                    if (Array.isArray(ucjs.scripts) && Array.isArray(ucjs.overlays) &&
+                        (ucjs.getScriptsDone || ucjs.scripts.length || ucjs.overlays.length)) {
+                        return {
+                            kind: "userChrome_js",
+                            ownerWindow: win,
+                        };
+                    }
+                }
+            } catch (e) { }
+
+            try {
+                if (win._uc && !win._uc.isFaked && win._uc.scripts) {
+                    return {
+                        kind: "_uc",
+                        ownerWindow: win,
+                    };
+                }
+            } catch (e) { }
+
+            try {
+                if (typeof win._ucUtils === "object" && win._ucUtils) {
+                    return {
+                        kind: "_ucUtils",
+                        ownerWindow: win,
+                    };
+                }
+            } catch (e) { }
+
+            return null;
+        },
+        resolveBackend (preferredWindow, preferredKind, scriptName) {
+            const preferred = [];
+            const fallback = [];
+
+            for (const win of this.getLiveBrowserWindows(preferredWindow)) {
+                const backend = this.getBackendFromWindow(win);
+                if (!backend) {
+                    continue;
+                }
+                if (scriptName && !this.backendHasScript(backend, scriptName)) {
+                    continue;
+                }
+                if (!preferredKind || backend.kind === preferredKind) {
+                    preferred.push(backend);
+                } else {
+                    fallback.push(backend);
+                }
+            }
+
+            const backend = preferred[0] || fallback[0] || null;
+            if (!backend) {
+                debugWarn("resolveBackend(): no backend", {
+                    preferredKind: preferredKind || null,
+                    scriptName: scriptName || null,
+                });
+                this.dumpWindowState("resolveBackend(): window snapshot", preferredWindow);
+            }
+            return backend;
+        },
+        resolveChromeURL (str) {
+            const registry = Cc["@mozilla.org/chrome/chrome-registry;1"].getService(Ci.nsIChromeRegistry);
+            try {
+                return registry.convertChromeURL(Services.io.newURI(str.replace(/\\/g, "/"))).spec;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        },
+        getBackendScripts (backend) {
+            if (!backend) {
+                return [];
+            }
+
+            switch (backend.kind) {
+                case "userChrome_js":
+                    return backend.ownerWindow.userChrome_js.scripts.concat(backend.ownerWindow.userChrome_js.overlays);
+                case "_uc":
+                    return Object.values(backend.ownerWindow._uc.scripts);
+                case "_ucUtils":
+                    return backend.ownerWindow._ucUtils.getScriptData().map(script => {
+                        let aFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+                        let path = this.resolveChromeURL(`chrome://userscripts/content/${script.filename}`);
+                        path = path.replace("file:///", "").replace(/\//g, '\\');
+                        aFile.initWithPath(path);
+                        return Object.assign({}, script, {
+                            file: aFile
+                        });
+                    });
+            }
+
+            return [];
+        },
+        getScriptFromBackend (backend, scriptName) {
+            if (!backend) {
+                return null;
+            }
+
+            if (backend.kind === "_uc") {
+                const script = backend.ownerWindow._uc.scripts[scriptName];
+                if (script) {
+                    return script;
+                }
+            }
+
+            return this.getBackendScripts(backend).find(script => script.filename === scriptName) || null;
+        },
+        backendHasScript (backend, scriptName) {
+            return !!this.getScriptFromBackend(backend, scriptName);
+        },
+        splitPrefList (value) {
+            return (value || "").split(",").filter(Boolean);
+        },
+        joinPrefList (list) {
+            return list.filter((name, index, arr) => !!name && arr.indexOf(name) === index).join(",");
+        },
+        restoreDisabledState (arr) {
+            var disable = [];
+            for (var i = 0, len = arr.length; i < len; i++) {
+                disable[arr[i]] = true;
+            }
+            return disable;
+        },
+        getScriptEnabled (backend, script) {
+            if (!script) {
+                return false;
+            }
+            if (script.hasOwnProperty("isEnabled")) {
+                return !!script.isEnabled;
+            }
+
+            switch (backend.kind) {
+                case "userChrome_js":
+                    return !(backend.ownerWindow.userChrome_js.scriptDisable &&
+                        backend.ownerWindow.userChrome_js.scriptDisable[script.filename]);
+                case "_uc":
+                    return !this.splitPrefList(xPref.get(backend.ownerWindow._uc.PREF_SCRIPTSDISABLED, "")).includes(script.filename);
+                case "_ucUtils":
+                    if (script.hasOwnProperty("enabled")) {
+                        return !!script.enabled;
+                    }
+                    return true;
+            }
+
+            return true;
+        },
+        setUserChromeDisabled (scriptName, disabled) {
+            const next = this.splitPrefList(Services.prefs.getStringPref("userChrome.disable.script", "")).filter(name => name !== scriptName);
+            if (disabled) {
+                next.push(scriptName);
+            }
+
+            Services.prefs.setStringPref("userChrome.disable.script", this.joinPrefList(next));
+
+            const state = this.restoreDisabledState(next);
+            this.getLiveBrowserWindows().forEach(win => {
+                try {
+                    if (win.userChrome_js) {
+                        win.userChrome_js.scriptDisable = state;
+                    }
+                } catch (e) { }
+            });
+
+            return !state[scriptName];
+        },
+        setUcDisabled (uc, scriptName, disabled) {
+            const next = this.splitPrefList(xPref.get(uc.PREF_SCRIPTSDISABLED, "")).filter(name => name !== scriptName);
+            if (disabled) {
+                next.unshift(scriptName);
+            }
+            xPref.set(uc.PREF_SCRIPTSDISABLED, this.joinPrefList(next));
+        },
+        applyUserDisabled (addon, disabled) {
+            const backend = addon.resolveBackend();
+            if (!backend) {
+                return !disabled;
+            }
+
+            switch (backend.kind) {
+                case "userChrome_js":
+                    return this.setUserChromeDisabled(addon.name, disabled);
+                case "_ucUtils": {
+                    const currentScript = this.getScriptFromBackend(backend, addon.name) || addon._script;
+                    const currentEnabled = this.getScriptEnabled(backend, currentScript);
+                    if (currentEnabled === !disabled) {
+                        return currentEnabled;
+                    }
+                    const obj = backend.ownerWindow._ucUtils.toggleScript(addon.name);
+                    if (obj && typeof obj.enabled === "boolean") {
+                        return obj.enabled;
+                    }
+                    if (obj && typeof obj.isEnabled === "boolean") {
+                        return obj.isEnabled;
+                    }
+                    return !disabled;
+                }
+                default:
+                    return !disabled;
+            }
+        },
+        enableLegacyScript (addon, backend) {
+            backend = backend || this.resolveBackend(addon._backend && addon._backend.ownerWindow, "_uc", addon.name);
+            if (!backend || backend.kind !== "_uc") {
+                return;
+            }
+
+            const uc = backend.ownerWindow._uc;
+            let script = this.getScriptFromBackend(backend, addon.name) || addon._script;
+            if (!script) {
+                return;
+            }
+
+            this.setUcDisabled(uc, script.filename, false);
+            if (!Array.isArray(uc.everLoaded) || !uc.everLoaded.includes(script.id)) {
+                script = uc.getScriptData(script.file);
+                Services.obs.notifyObservers(null, "startupcache-invalidate");
+                uc.windows((doc, win, loc) => {
+                    if (win._uc && script.regex.test(loc.href)) {
+                        uc.loadScript(script, win);
+                    }
+                }, false);
+            }
+            addon._script = script;
+        },
+        disableLegacyScript (addon, backend) {
+            backend = backend || this.resolveBackend(addon._backend && addon._backend.ownerWindow, "_uc", addon.name);
+            if (!backend || backend.kind !== "_uc") {
+                return;
+            }
+
+            const uc = backend.ownerWindow._uc;
+            const script = this.getScriptFromBackend(backend, addon.name) || addon._script;
+            if (!script) {
+                return;
+            }
+
+            this.setUcDisabled(uc, script.filename, true);
+            if (script.isRunning && !!script.shutdown) {
+                uc.windows((doc, win, loc) => {
+                    if (script.regex.test(loc.href)) {
+                        try {
+                            eval(script.shutdown);
+                        } catch (ex) {
+                            Cu.reportError(ex);
+                        }
+                        if (script.onlyonce) {
+                            return true;
+                        }
+                    }
+                }, false);
+                script.isRunning = false;
+            }
+        },
+        initScripts () {
+            this.scripts = [];
+            debugLog("initScripts(): start", {
+                href: String(window.location),
+            });
+            this.logBackendDiagnostics("initScripts(): before resolveBackend", window);
+            const backend = this.resolveBackend(window);
+            if (!backend) {
+                debugWarn("initScripts(): no backend, scripts list stays empty");
+                return this.scripts;
+            }
+
+            const rawScripts = this.getBackendScripts(backend);
+            debugLog("initScripts(): backend resolved", {
+                kind: backend.kind,
+                ownerHref: String(backend.ownerWindow.location),
+                rawCount: rawScripts.length,
+            });
+
+            rawScripts.forEach((script) => {
+                if (!EXCLUED_SCRIPTS.includes(script.filename)) {
+                    this.scripts.push(new ScriptAddon(script, backend));
+                }
+            });
+
+            debugLog("initScripts(): completed", {
+                kind: backend.kind,
+                filteredCount: this.scripts.length,
+                excluded: EXCLUED_SCRIPTS.slice(),
+            });
+            if (!this.scripts.length) {
+                this.logBackendDiagnostics("initScripts(): empty result diagnostics", backend.ownerWindow);
+                this.dumpWindowState("initScripts(): empty result window snapshot", backend.ownerWindow);
+            }
+
+            return this.scripts;
+        },
+        getScriptById (aId) {
+            this.initScripts();
+            for (var i = 0; i < this.scripts.length; i++) {
+                if (this.scripts[i].id == aId)
+                    return this.scripts[i];
+            }
+            return null;
+        },
+        registerProvider () {
+            const provider = {
+                async getAddonByID (aId) {
+                    const addon = userChromeJSAddon.getScriptById(aId);
+                    debugLog("provider.getAddonByID()", {
+                        id: aId,
+                        found: !!addon,
+                    });
+                    return addon;
+                },
+
+                async getAddonsByTypes (aTypes) {
+                    debugLog("provider.getAddonsByTypes()", {
+                        types: aTypes || null,
+                    });
+                    if (aTypes && !aTypes.includes("userchromejs")) {
+                        return [];
+                    } else {
+                        userChromeJSAddon.initScripts();
+                        debugLog("provider.getAddonsByTypes(): result", {
+                            count: userChromeJSAddon.scripts.length,
+                        });
+                        return userChromeJSAddon.scripts;
+                    }
+                },
+            };
+
+            AddonManagerPrivate.registerProvider(provider, [
+                AddonManagerPrivate.AddonType ?
+                    new AddonManagerPrivate.AddonType(
+                        "userchromejs",
+                        "",
+                        addons_userchromejs,
+                        AddonManager.VIEW_TYPE_LIST,
+                        9000
+                    ) :
+                    "userchromejs"
+            ]);
+            this.isProviderOwner = true;
+            debugLog("registerProvider(): registered");
+
+            this.unloads.push(() => {
+                debugLog("registerProvider(): unregister");
+                this.isProviderOwner = false;
+                AddonManagerPrivate.unregisterProvider(provider);
+                this.handoffProviderToOtherWindow();
+            });
+        },
+        addStyle () {
+            let styleService = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
+            let data = `@namespace url(http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul);
+                @namespace html url(http://www.w3.org/1999/xhtml);
+                @-moz-document url("about:addons"), url("chrome://mozapps/content/extensions/extensions.xul") {
+                    #category-userchromejs > .category-icon {
+                        list-style-image: url(chrome://mozapps/skin/extensions/experimentGeneric.svg);
+                    }
+                    #category-tampermonkey > .category-icon {
+                        list-style-image: url(chrome://mozapps/skin/extensions/extensionGeneric.svg);
+                    }
+                    #category-stylus > .category-icon {
+                        list-style-image: url(chrome://mozapps/skin/extensions/extensionGeneric.svg);
+                    }
+                }
+                @-moz-document url("about:addons"), url("chrome://mozapps/content/extensions/aboutaddons.html") {
+                    html|*.category[name="userchromejs"] {
+                        background-image: url(chrome://mozapps/skin/extensions/category-extensions.svg);
+                    }
+                    html|*.category[name="tampermonkey"] {
+                        background-image: url(chrome://mozapps/skin/extensions/category-extensions.svg);
+                    }
+                    html|*.category[name="stylus"] {
+                        background-image: url(chrome://mozapps/skin/extensions/category-extensions.svg);
+                    }
+                    .userchromejs-detail-row {
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 12px;
+                    }
+                    .userchromejs-detail-row > .detail-row-label {
+                        flex: 0 0 128px;
+                        min-width: 128px;
+                        margin: 0;
+                        text-align: left;
+                        whitespace: nowrap;
+                    }
+                    .userchromejs-detail-value {
+                        flex: 1 1 auto;
+                        min-width: 0;
+                    }
+                    .userchromejs-detail-value > a,
+                    .userchromejs-detail-value > span {
+                        display: block;
+                        text-align: left;
+                        overflow-wrap: anywhere;
+                        word-break: break-word;
+                    }
+                    .addon-detail-row-homepage {
+                        justify-content: flex-start !important;
+                        align-items: flex-start !important;
+                        gap: 12px !important;
+                    }
+                    .addon-detail-row-homepage > label {
+                        flex: 0 0 88px !important;
+                        min-width: 88px !important;
+                        margin: 0 !important;
+                        text-align: left !important;
+                    }
+                    .addon-detail-row-homepage > a {
+                        display: block !important;
+                        flex: 1 1 auto !important;
+                        min-width: 0 !important;
+                        text-align: left !important;
+                        overflow-wrap: anywhere !important;
+                        word-break: break-word !important;
+                    }
+                    .tampermonkey-dashboard-view {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 16px;
+                        min-height: calc(100vh - 190px);
+                    }
+                    .tampermonkey-dashboard-header {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 4px;
+                    }
+                    .tampermonkey-dashboard-title {
+                        margin: 0;
+                    }
+                    .tampermonkey-dashboard-subtitle {
+                        margin: 0;
+                        color: var(--in-content-deemphasized-text);
+                    }
+                    .tampermonkey-dashboard-message {
+                        margin: 0;
+                    }
+                    .tampermonkey-dashboard-link {
+                        display: block;
+                        overflow-wrap: anywhere;
+                        word-break: break-word;
+                    }
+                }`;
+
+            let styleURI = Services.io.newURI("data:text/css," + encodeURIComponent(data), null, null);
+            styleService.loadAndRegisterSheet(styleURI, Ci.nsIStyleSheetService.USER_SHEET);
+
+            this.unloads.push(function () {
+                styleService.unregisterSheet(styleURI, Ci.nsIStyleSheetService.USER_SHEET);
+            });
+        },
+    };
+
+    function ScriptAddon (aScript, aBackend) {
+        this._script = aScript;
+        this._backend = {
+            kind: aBackend.kind,
+            ownerWindow: aBackend.ownerWindow,
+        };
+
+        this.id = "ucjs:" + this._script.filename;  //this._script.url.replace(/\//g, "|");
+        this.name = this._script.filename;
+        this.description = this._script.description || "";
+        // 定制脚本的ll0n描述
+        if (this.description === "MouseGestures.uc.js") {
+            this.description = addons_mousegestures_description;
+        } else if (this.description === "DownloadUpcheck.uc.js") {
+            this.description = addons_downloadupcheck_description;
+        } else if (this.description === "HoverActivateTab.uc.js") {
+            this.description = addons_autoactivatetab_description;
+        } else if (this.description === "RclickCloseTab.uc.js") {
+            this.description = addons_rightclickclosetab_description;
+        }
+        this.enabled = userChromeJSAddon.getScriptEnabled(aBackend, this._script);
+        this.homepageURL = this._script.homepageURL || null;
+
+        const resolvedIconURL = userChromeJSAddon.normalizeIconURL(this._script.iconURL || this._script.icon || iconURL);
+        this.iconURL = resolvedIconURL;
+        this.icon32URL = resolvedIconURL;
+        this.icon64URL = resolvedIconURL;
+        this.icons = {
+            32: resolvedIconURL,
+            64: resolvedIconURL,
+        };
+    }
+
+    ScriptAddon.prototype = {
+        version: null,
+        type: "userchromejs",
+        isCompatible: true,
+        blocklistState: Ci.nsIBlocklistService.STATE_NOT_BLOCKED,
+        appDisabled: false,
+        scope: AddonManager.SCOPE_PROFILE,
+        name: null,
+        creator: null,
+        pendingOperations: AddonManager.PENDING_NONE,  // 必须，否则所有都显示 restart
+        operationsRequiringRestart: AddonManager.OP_NEEDS_RESTART_ENABLE | AddonManager.OP_NEEDS_RESTART_DISABLE | AddonManager.OP_NEEDS_RESTART_UNINSTALL,
+
+        get optionsURL () {
+            if (this.isActive && this._script.optionsURL)
+                return this._script.optionsURL;
+        },
+        resolveBackend () {
+            const backend = userChromeJSAddon.resolveBackend(
+                this._backend && this._backend.ownerWindow,
+                this._backend && this._backend.kind,
+                this.name
+            );
+            if (backend) {
+                this._backend = {
+                    kind: backend.kind,
+                    ownerWindow: backend.ownerWindow,
+                };
+                const script = userChromeJSAddon.getScriptFromBackend(backend, this.name);
+                if (script) {
+                    this._script = script;
+                }
+            }
+            return backend;
+        },
+        refreshState () {
+            const backend = this.resolveBackend();
+            if (backend) {
+                this.enabled = userChromeJSAddon.getScriptEnabled(backend, this._script);
+            }
+            return this.enabled;
+        },
+
+        get isActive () {
+            return !this.userDisabled ? true : false;
+        },
+        get userDisabled () {
+            this.refreshState();
+            return !this.enabled ? true : false;
+        },
+        set userDisabled (val) {
+            if (val == !this.enabled) {
+                return val;
+            }
+
+            AddonManagerPrivate.callAddonListeners(val ? 'onEnabling' : 'onDisabling', this, false);
+
+            if (this.pendingOperations == AddonManager.PENDING_NONE) {
+                this.pendingOperations = val ? AddonManager.PENDING_DISABLE : AddonManager.PENDING_ENABLE;
+            } else {
+                this.pendingOperations = AddonManager.PENDING_NONE;
+            }
+
+            this.enabled = userChromeJSAddon.applyUserDisabled(this, val);
+
+            AddonManagerPrivate.callAddonListeners(val ? 'onEnabled' : 'onDisabled', this);
+        },
+        get permissions () {
+            // var perms = AddonManager.PERM_CAN_UNINSTALL;
+            // perms |= this.userDisabled ? AddonManager.PERM_CAN_ENABLE : AddonManager.PERM_CAN_DISABLE;
+            var perms = this.userDisabled ? AddonManager.PERM_CAN_ENABLE : AddonManager.PERM_CAN_DISABLE;
+            // if (this.updateURL) perms |= AddonManager.PERM_CAN_UPGRADE;
+            return perms;
+        },
+
+        uninstall () {
+            AddonManagerPrivate.callAddonListeners("onUninstalling", this, false);
+            this.needsUninstall = true;
+            this.pendingOperations |= AddonManager.PENDING_UNINSTALL;
+            AddonManagerPrivate.callAddonListeners("onUninstalled", this);
+        },
+        cancelUninstall () {
+            this.needsUninstall = false;
+            this.pendingOperations ^= AddonManager.PENDING_UNINSTALL;
+            AddonManagerPrivate.callAddonListeners("onOperationCancelled", this);
+        },
+
+        // Fx62.0-
+        async enable () {
+            const backend = this.resolveBackend();
+            if (backend && backend.kind === "_uc") {
+                userChromeJSAddon.enableLegacyScript(this, backend);
+            }
+            this.userDisabled = false;
+        },
+        async disable () {
+            const backend = this.resolveBackend();
+            if (backend && backend.kind === "_uc") {
+                userChromeJSAddon.disableLegacyScript(this, backend);
+            }
+            this.userDisabled = true;
+        },
+    };
+
+    function $C (doc, tag, attrs, parent, reference) {
+        let node;
+
+        if (tag instanceof Node) {
+            node = tag;
+        } else if (tag === "#text") {
+            node = doc.createTextNode(attrs);
+            attrs = null;
+        } else if (tag === "panel-item" && parseInt(APP_VERSION) === 110) {
+            const docWin = doc.documentGlobal || doc.relevantGlobal || doc.defaultView || window;
+            node = new (docWin.customElements.get("panel-item"));
+        } else {
+            node = doc.createElement(tag);
+        }
+
+        if (attrs) {
+            Object.entries(attrs).forEach(([name, val]) => {
+                if (name === "#text") {
+                    node.appendChild(doc.createTextNode(val));
+                } else {
+                    node.setAttribute(name, val);
+                }
+            });
+        }
+        // if(parent instanceof Node) {
+        if (parent && typeof parent.insertBefore === "function") { // fx 106
+            parent.insertBefore(node, reference);
+        }
+        return node;
+    }
+
+    if (!window.xPref) {
+        window.xPref = {
+            // Retorna o valor da preferência, seja qual for o tipo, mas não
+            // testei com tipos complexos como nsIFile, não sei como detectar
+            // uma preferência assim, na verdade nunca vi uma
+            get: function (prefPath, def = false, valueIfUndefined, setDefault = true) {
+                let sPrefs = def ?
+                    Services.prefs.getDefaultBranch(null) :
+                    Services.prefs;
+
+                try {
+                    switch (sPrefs.getPrefType(prefPath)) {
+                        case 0:
+                            if (valueIfUndefined != undefined)
+                                return this.set(prefPath, valueIfUndefined, setDefault);
+                            else
+                                return undefined;
+                        case 32:
+                            return sPrefs.getStringPref(prefPath);
+                        case 64:
+                            return sPrefs.getIntPref(prefPath);
+                        case 128:
+                            return sPrefs.getBoolPref(prefPath);
+                    }
+                } catch (ex) {
+                    return undefined;
+                }
+                return;
+            },
+
+            set: function (prefPath, value, def = false) {
+                let sPrefs = def ?
+                    Services.prefs.getDefaultBranch(null) :
+                    Services.prefs;
+
+                switch (typeof value) {
+                    case 'string':
+                        return sPrefs.setStringPref(prefPath, value) || value;
+                    case 'number':
+                        return sPrefs.setIntPref(prefPath, value) || value;
+                    case 'boolean':
+                        return sPrefs.setBoolPref(prefPath, value) || value;
+                }
+                return;
+            },
+
+            lock: function (prefPath, value) {
+                let sPrefs = Services.prefs;
+                this.lockedBackupDef[prefPath] = this.get(prefPath, true);
+                if (sPrefs.prefIsLocked(prefPath))
+                    sPrefs.unlockPref(prefPath);
+
+                this.set(prefPath, value, true);
+                sPrefs.lockPref(prefPath);
+            },
+
+            lockedBackupDef: {},
+
+            unlock: function (prefPath) {
+                Services.prefs.unlockPref(prefPath);
+                let bkp = this.lockedBackupDef[prefPath];
+                if (bkp == undefined)
+                    Services.prefs.deleteBranch(prefPath);
+                else
+                    this.set(prefPath, bkp, true);
+            },
+
+            clear: Services.prefs.clearUserPref,
+
+            // Detecta mudanças na preferência e retorna:
+            // return[0]: valor da preferência alterada
+            // return[1]: nome da preferência alterada
+            // Guardar chamada numa var se quiser interrompê-la depois
+            addListener: function (prefPath, trat) {
+                this.observer = function (aSubject, aTopic, prefPath) {
+                    return trat(xPref.get(prefPath), prefPath);
+                }
+
+                Services.prefs.addObserver(prefPath, this.observer);
+                return {
+                    prefPath: prefPath,
+                    observer: this.observer
+                };
+            },
+
+            // Encerra pref observer
+            // Só precisa passar a var definida quando adicionou
+            removeListener: function (obs) {
+                Services.prefs.removeObserver(obs.prefPath, obs.observer);
+            }
+        }
+    }
+
+    window[UNLOAD_HANDLER_KEY] = function () {
+        debugLog("window unload cleanup", {
+            href: String(window.location),
+        });
+        try {
+            if (window.AM_Helper) {
+                window.AM_Helper.uninit();
+            }
+        } catch (ex) {
+            console.error(ex);
+        }
+        try {
+            if (window.userChromeJSAddon) {
+                window.userChromeJSAddon.uninit();
+            }
+        } catch (ex) {
+            console.error(ex);
+        }
+        window.removeEventListener("unload", window[UNLOAD_HANDLER_KEY], false);
+        delete window[UNLOAD_HANDLER_KEY];
+    };
+    window.addEventListener("unload", window[UNLOAD_HANDLER_KEY], false);
+
+    await AM_Helper.init();
+
+    await userChromeJSAddon.init();
+})();
