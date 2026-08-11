@@ -1,8 +1,6 @@
 // ==UserScript==
 // @name            DownloadUpcheck.uc.js
 // @author          Ryan, benzBrake
-// @long-description
-// @description
 // 下载增强脚本，修改整合自（w13998686967、ywzhaiqi、黒仪大螃蟹、Alice0775、紫云飞），已重写代码。
 // 相关 about:config 选项 修改后请重启浏览器，不支持热重载
 // userChromeJS.downloadPlus.flashgotDownloadManagers 下载器列表缓存（一般不需要修改)
@@ -41,7 +39,7 @@
 // @include         about:downloads
 // @version         1.0.6
 // @compatibility   Firefox 115
-// @homepageURL     https://github.com/benzBrake/FirefoxCustomize/Firefox-downloadPlus.uc.js
+// @homepageURL     https://github.com/adonais/iceweasel-userchrome
 // ==/UserScript==
 (async function (globalCSS, placesCSS, unknownContentCSS) {
 
@@ -653,7 +651,7 @@
                 label: about_download_plus,
                 id: 'FlashGot-about',
                 oncommand: function () {
-                    openTrustedLinkIn("https://github.com/benzBrake/Firefox-downloadPlus.uc.js", "tab");
+                    openTrustedLinkIn("https://github.com/adonais/iceweasel-userchrome", "tab");
                 }
             }));
             popup.addEventListener('popupshowing', this, false);
