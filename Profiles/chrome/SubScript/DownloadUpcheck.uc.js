@@ -285,23 +285,28 @@
                         console.log("we delete [%s]", aDownload.source.url);
                     }
                 },
-            
+
                 onDownloadChanged: (aDownload) => {
                     // 重置userChromeJS.downloadPlus.shown, 启用拦截
                     if (isTrue("userChromeJS.downloadPlus.shown", false) && aDownload.currentBytes > 0) {
                         Services.prefs.clearUserPref("userChromeJS.downloadPlus.shown");
                     }
                     // 拦截了下载, 调用下载器
-                    if (document.hasFocus() && aDownload.error && aDownload.error.result === undefined) {
-                        // call upcheck;
-                        const id = managerId(this.DEFAULT_MANAGER);
-                        const referer = aDownload.source.referrerInfo ? aDownload.source.referrerInfo : null;
-                        if (upcheck.download_caller(id, aDownload.source.url, referer, aDownload.target.path, null) == 0) {
-                            // 注入页面, 添加下载提示
-                            messageTip();
-                        }
-                        if (alwaysOp) {
-                            Services.prefs.clearUserPref("browser.download.alwaysOpenPanel");
+                    if (aDownload.error && aDownload.error.result === undefined) {
+                        // 使用文件锁防止多次调用
+                        const hashUrl = hashText(aDownload.source.url, "SHA-256");
+                        if (handlePath(hashUrl)) {
+                            // call upcheck;
+                            const id = managerId(this.DEFAULT_MANAGER);
+                            const referer = aDownload.source.referrerInfo ? aDownload.source.referrerInfo : null;
+                            if (upcheck.download_caller(id, aDownload.source.url, referer, aDownload.target.path, null) == 0) {
+                                // 注入页面, 添加下载提示
+                                messageTip();
+                            }
+                            if (alwaysOp) {
+                                Services.prefs.clearUserPref("browser.download.alwaysOpenPanel");
+                            }
+                            setTimeout(removeFile, 1000, hashUrl);
                         }
                     }
                 }
@@ -753,6 +758,48 @@
         }
     }
 
+    function hashText(text, type) {
+        try {
+            let data = new TextEncoder("utf-8").encode(text);
+            if (Ci.nsICryptoHash[type]) {
+                type = Ci.nsICryptoHash[type]
+            } else {
+                type = 2;
+            }
+            var hasher = Cc["@mozilla.org/security/hash;1"].createInstance(
+                Ci.nsICryptoHash
+            );
+            hasher.init(type);
+            hasher.update(data, data.length);
+            var hash = hasher.finish(false);
+            str = data = hasher = null;
+            function toHexString (charCode) {
+                return ("0" + charCode.toString(16)).slice(-2);
+            }
+            return Array.from(hash, (c, i) => toHexString(hash.charCodeAt(i))).join("");
+        } catch (e) {
+            console.log("hashText error");
+        }
+    }
+
+    function handlePath(path) {
+        let f = Services.dirsvc.get("ProfD", Ci.nsIFile);
+        f.appendRelativePath(path.slice(1));
+        if (!f.exists()) {
+            IOUtils.writeUTF8(f.path, "");
+            return true;
+        }
+        return false;
+    }
+
+    function removeFile(file) {
+        let f = Services.dirsvc.get("ProfD", Ci.nsIFile);
+        f.appendRelativePath(file.slice(1));
+        if (f.exists()) {
+            IOUtils.remove(f.path);
+        }
+    }
+
     function fileSaveAs() {
         const mainwin = Services.wm.getMostRecentWindow("navigator:browser");
         // 感谢 ycls006 / alice0775
@@ -924,7 +971,7 @@
 
     /**
      * 获取所有盘符，用到 dll 调用，只能在 windows 下使用
-     * 
+     *
      * @system windows
      * @returns {array} 所有盘符数组
      */
@@ -951,9 +998,9 @@
 
     /**
      * 选择 HTML 元素
-     * 
+     *
      * @param {string} sel 选择表达式
-     * @returns 
+     * @returns
      */
     function $ (sel) {
         return document.querySelector(sel);
@@ -961,11 +1008,11 @@
 
     /**
      * 创建 DOM 元素
-     * 
-     * @param {Document} doc 
-     * @param {string} type 
-     * @param {Object} attrs 
-     * @returns 
+     *
+     * @param {Document} doc
+     * @param {string} type
+     * @param {Object} attrs
+     * @returns
      */
     function createEl (doc, type, attrs = {}) {
         let el = type.startsWith('html:') ? doc.createElementNS('http://www.w3.org/1999/xhtml', type) : doc.createXULElement(type);
@@ -983,7 +1030,7 @@
 
     /**
      * 复制文本到剪贴板
-     * 
+     *
      * @param {string} aText 需要复制的文本
      */
     function copyText (aText) {
