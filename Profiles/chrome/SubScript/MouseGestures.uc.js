@@ -1313,7 +1313,7 @@ z-index: 2147483647 !important;`.trim();
         /// region event handlers
 
         mousedown(event) {
-            if (event.button === 2) {
+            if (event.button === 2 && !this.exUrl(gBrowser.selectedTab.linkedBrowser.currentURI.spec)) {
                 this.isMouseDownR            = true;
                 this.hideFireContext         = false;
                 let {screenX: x, screenY: y} = event;
@@ -1434,6 +1434,25 @@ z-index: 2147483647 !important;`.trim();
             if (typeof fn === 'function') {
                 return fn.call(this, event);
             }
+        }
+
+        exUrl(url) {
+            let ex = false;
+            if (url && url.length > 0) {
+                // 某些网站你可能不想激活鼠标手势, 这里是排除名单
+                // 你可以改写脚本从文件读取或者从pref.js读取都行
+                const exhost = [
+                    "test2.mousegestures.com",
+                    null,
+                ];
+                for (const item of exhost) {
+                    if (url.search(item) >= 0) {
+                        ex = true;
+                        break;
+                    }
+                }
+            }
+            return ex;
         }
     }
 
