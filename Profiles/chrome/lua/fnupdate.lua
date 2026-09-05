@@ -35,7 +35,7 @@ end
 local function utf16(input)
     local wstr = ffi.cast("void *", utf8_utf16_lua(input))
     ffi.gc(wstr,(function(self)
-        if wstr != nil then ffi.C.free(wstr) end
+        if wstr ~= nil then ffi.C.free(wstr) end
         print("call gc, goodbye!")
     end))
     return wstr
@@ -46,7 +46,7 @@ local function get_remote_version()
     local res = -1
     local curl = luacurl_easy_init()
     local xbuf = ffi.new("ini_buffer", {0, nil})
-    if (curl != nil) then
+    if (curl ~= nil) then
         -- LUA函数转换成c回调函数
         local version_func = ffi.cast("curl_write_callback", function(ptr, size, nmemb, userdata)
             local written = (size * nmemb);
@@ -65,7 +65,7 @@ local function get_remote_version()
         luacurl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
         luacurl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
         res = luacurl_easy_perform(curl)
-        if res != 0 then
+        if res ~= 0 then
             print(ffi.string(luacurl_easy_strerror(res)))
         end
         luacurl_easy_cleanup(curl)
@@ -74,7 +74,7 @@ local function get_remote_version()
     if (res == 0) then
         res = luaini_cdata_parser(xbuf)
     end
-    if (xbuf.str != nil) then
+    if (xbuf.str ~= nil) then
         ffi.C.free(xbuf.str)
     end
     return res
@@ -84,7 +84,7 @@ end
 function run(title, err, latest, updated)
     local result = 255;
     local hwnd = get_handle()
-    if (hwnd != nil) then
+    if (hwnd ~= nil) then
         local res = get_remote_version()
         if (res == 0) then
             result = ffi.C.MessageBoxW(ffi.cast("void *", hwnd), utf16(updated), utf16(title), 1)
