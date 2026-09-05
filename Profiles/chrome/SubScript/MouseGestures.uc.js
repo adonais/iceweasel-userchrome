@@ -48,6 +48,7 @@
         update_err,
         update_laster,
         update_new,
+        update_new2,
         nocache_exit,
         download_dir,
         aria2_webui,
@@ -84,6 +85,7 @@
         'mouse_gestures_update_err',
         'mouse_gestures_update_laster',
         'mouse_gestures_update_new',
+        'mouse_gestures_update_new2',
         'mouse_gestures_nocache_exit',
         'mouse_gestures_download_dir',
         'mouse_gestures_aria2_webui',
@@ -1008,10 +1010,12 @@ z-index: 2147483647 !important;`.trim();
         // 下面演示了异步调用, 最后一个参数是你的回调函数
         // 回调函数的参数是lua脚本的返回值
         static callback(value) {
-            console.log("value = %d\n", value);
+            if (value === 1) {
+                openTrustedLinkIn('https://sourceforge.net/projects/libportable/files/Iceweasel/Stable/', 'tab', {inBackground: false, relatedToCurrent: true});
+            }
         }
         static onUpdate() {
-            const arg = ['fnupdate.lua', update_title, update_err, update_laster, update_new, MouseGestureCommand.callback];
+            const arg = ['fnupdate.lua', update_title, update_err, update_laster, update_new2 ? update_new2 : update_new, MouseGestureCommand.callback];
             upcheck.runAsync(arg);
         }
 
