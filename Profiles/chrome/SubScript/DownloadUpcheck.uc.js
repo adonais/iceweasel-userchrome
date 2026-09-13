@@ -56,7 +56,7 @@
     await ChromeUtils.defineESModuleGetters(this, {
         DownloadsCommon: versionGE("146a1") ? "moz-src:///browser/components/downloads/DownloadsCommon.sys.mjs" : "resource:///modules/DownloadsCommon.sys.mjs",
         DownloadHistory: "resource://gre/modules/DownloadHistory.sys.mjs",
-        DownloadsViewUI: "resource:///modules/DownloadsViewUI.sys.mjs",
+        PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
     });
     const
     [
@@ -287,6 +287,11 @@
                 },
 
                 onDownloadChanged: (aDownload) => {
+                    const dflags = DownloadsCommon.getIndicatorData(window).attentionSuppressed;
+                    if (dflags & DownloadsCommon.SUPPRESS_ALL_DOWNLOADS_OPEN || dflags & DownloadsCommon.SUPPRESS_CONTENT_AREA_DOWNLOADS_OPEN) {
+                        // The download page is opened, we do nothing
+                        return;
+                    }
                     // 重置userChromeJS.downloadPlus.shown, 启用拦截
                     if (isTrue("userChromeJS.downloadPlus.shown", false) && aDownload.currentBytes > 0) {
                         Services.prefs.clearUserPref("userChromeJS.downloadPlus.shown");
@@ -306,7 +311,7 @@
                             if (alwaysOp) {
                                 Services.prefs.clearUserPref("browser.download.alwaysOpenPanel");
                             }
-                            setTimeout(removeFile, 1000, hashUrl);
+                            setTimeout(removeFile, 1000, hashUrl, aDownload);
                         }
                     }
                 }
@@ -756,6 +761,13 @@
                 upcheck.download_caller(id, url, referer, filename, null);
             }
         }
+    };
+
+    async function deleteHistory(download) {
+      let sourceURI = URL.parse(download.source.url)?.URI;
+      if (sourceURI && PlacesUtils.history.canAddURI(sourceURI)) {
+        await PlacesUtils.history.remove(sourceURI).then(() => undefined);
+      }
     }
 
     function hashText(text, type) {
@@ -792,10 +804,15 @@
         return false;
     }
 
-    function removeFile(file) {
+    function removeFile(file, aDown) {
         let f = Services.dirsvc.get("ProfD", Ci.nsIFile);
         f.appendRelativePath(file.slice(1));
         if (f.exists()) {
+            // 清除数据库历史记录
+            if (aDown) {
+              deleteHistory(aDown);
+            }
+            // 清除锁
             IOUtils.remove(f.path);
         }
     }
