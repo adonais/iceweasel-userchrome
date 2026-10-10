@@ -1097,11 +1097,7 @@ z-index: 2147483647 !important;`.trim();
 
         // 关闭左侧标签页
         static closeAllLeftTabs() {
-            for (let i = gBrowser.selectedTab._tPos - 1; i >= 0; i--) {
-                if (!gBrowser.tabs[i].pinned) {
-                    gBrowser.removeTab(gBrowser.tabs[i], {animate: true});
-                }
-            }
+            gBrowser.removeTabsToTheStartFrom(gBrowser.selectedTab, {animate: true});
         }
 
         // 关闭右侧标签页
