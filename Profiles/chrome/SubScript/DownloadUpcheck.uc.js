@@ -857,7 +857,8 @@
                   'pan.via',
                   '56ads.com',
                   '/\.xpi$/i',
-                  '/xpinstall$/i'
+                  '/xpinstall$/i',
+                  'tc4shell.com'
             ];
             if (AppConstants.platform === "win") {
                 Domain.push('download.gnome.org');
