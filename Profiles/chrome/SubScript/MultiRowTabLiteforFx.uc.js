@@ -2,11 +2,12 @@
 // @name           MultiRowTabLiteforFx.uc.js
 // @namespace      https://github.com/Izheil/Quantum-Nox-Firefox-Customizations
 // @include        main
-// @compatibility  Firefox 157 to Firefox 160.0a1， Compatible with ESR115 (2026-10-22)
+// @compatibility  Firefox 157 to Firefox 160.0a1， Compatible with ESR115 (2026-10-23)
 // @author         Alice0775, Endor8, TroudhuK, Izheil, Merci-chao， adonais, AI
 // @homepageURL    https://github.com/adonais/iceweasel-userchrome
 // @async          true
 // @sandbox        true
+// @version        23/10/2026 04:10 Stop hiding the window controls (minimize/maximize/close) automatically in the vertical tab bar layout. The nav bar copy of the button box, which is the one Firefox shows there, is no longer hidden, and hideWindowControlsMenu now controls the window controls in both the horizontal and the vertical layout.
 // @version        22/10/2026 23:00 Add optional showCloseButtonOnlyOnActiveTab feature: when enabled, the tab close (X) button is only visible on the active/selected tab. Works on ESR115+ without using :has() selectors.
 // @version        22/10/2026 22:10 Fix drag drop indicator staying visible after dropping tabs on ESR115: manually hide the indicator and reset drag state after drop/dragend/dragleave, since our event interception blocks the native cleanup code.
 // @version        22/10/2026 21:30 Fix multi-row tab dragging on Firefox ESR115: bind drag event listeners in capture phase with stopImmediatePropagation to override the native listeners that were already bound via addEventListener at init time (assigning to .on_dragover/_onDragOver properties had no effect there). Also use event.composedPath() for empty space detection to see through the shadow DOM of arrowScrollbox, so tabs dropped on empty area correctly go to the end.
@@ -74,11 +75,13 @@
         // If the new tab button should be hidden
         const hideNewTabBtn = false;
 
-        // If the minimize/maximize/close buttons should be hidden while the horizontal tab bar
-        // is used. They are not shown with the vertical tab bar either, so this makes both
-        // layouts look the same. The titlebar spacers Firefox reserves for those buttons (40px
-        // empty drag areas) are hidden in the horizontal tab bar as well.
-        const hideWindowControlsInHorizontalMode = true;
+        // If the minimize/maximize/close buttons should be hidden. This applies to both tab bar
+        // layouts: the horizontal multirow tab bar and the vertical tab bar.
+        // While this is false (the default) the window controls are left exactly where Firefox
+        // puts them, so they stay visible in the vertical tab bar layout instead of being hidden
+        // automatically. When the horizontal tab bar is used, the titlebar spacers Firefox
+        // reserves for those buttons (40px empty drag areas) are hidden together with them.
+        const hideWindowControlsMenu = false;
 
         // Only show the tab close (X) button on the currently active/selected tab.
         // When enabled, non-active tabs will not display their close button, reducing visual
@@ -266,8 +269,15 @@
             padding-inline-start: 0 !important;
         }
 
-        /* Remove duplicated min/max/close buttons */
-        #nav-bar > .titlebar-buttonbox-container {
+        /* Remove duplicated min/max/close buttons.
+           The button box copy inside the nav bar is a duplicate only while the horizontal
+           multirow tab bar is used, because there the real controls live in #TabsToolbar.
+           With the vertical tab bar Firefox moves the real window controls into the nav bar,
+           so hiding that copy there was what made the minimize/maximize/close buttons disappear
+           in the vertical layout. Gating the rule on the root attribute that
+           setupTabBarOrientationMarker() keeps up to date hides the duplicate in the horizontal
+           layout and leaves the native controls untouched in the vertical one. */
+        :root[${TAB_BAR_HORIZONTAL_ATTR}] #nav-bar > .titlebar-buttonbox-container {
             display: none !important;
         }
 
@@ -286,16 +296,23 @@
             css += `#alltabs-button {display: none !important;}`
         }
 
-        if (hideWindowControlsInHorizontalMode) {
+        if (hideWindowControlsMenu) {
             // The minimize/maximize/close buttons are wrapped in a .titlebar-buttonbox-container,
-            // and Firefox puts a copy of it in the tabs toolbar and in the menu bar. Hiding the
-            // container (and the inner .titlebar-buttonbox for good measure) covers every one of
-            // those copies, so with the horizontal tab bar no window control is left behind.
+            // and Firefox keeps a copy of it in the tabs toolbar, in the nav bar and in the menu
+            // bar, showing whichever one fits the current layout. Hiding the container (and the
+            // inner .titlebar-buttonbox for good measure) covers every one of those copies, so no
+            // window control is left behind in either tab bar layout.
             //
-            // These rules are gated on the root attribute kept by setupTabBarOrientationMarker()
-            // and not on :has(). The CSS parser only knows :has() from Firefox 121 on, so the
-            // ESR115 branch drops every rule that uses it without a warning, which is exactly why
-            // the buttons stayed visible there. An attribute selector is understood everywhere.
+            // These rules are deliberately not gated on the tab bar orientation, so the option
+            // controls the window controls in the vertical tab bar layout as well instead of only
+            // in the horizontal one. The buttons are shown again in the vertical layout by
+            // default because the nav bar copy is no longer hidden there, see the
+            // "Remove duplicated min/max/close buttons" rule above.
+            //
+            // They are also written without :has(). The CSS parser only knows :has() from Firefox
+            // 121 on, so the ESR115 branch drops every rule that uses it without a warning, which
+            // is exactly why the buttons stayed visible there. Plain selectors are understood
+            // everywhere.
             //
             // A copy of this container also lives in #toolbar-menubar, which is the one Firefox
             // shows while the menu bar is visible, so hiding just the tabs toolbar copy is not
@@ -303,8 +320,8 @@
             // rule that the main stylesheet above applies to the tabs toolbar copy, which is
             // required for these rules to win, as both of them use !important.
             css += `
-            :root[${TAB_BAR_HORIZONTAL_ATTR}] :is(.titlebar-buttonbox-container, .titlebar-buttonbox),
-            :root[${TAB_BAR_HORIZONTAL_ATTR}] :is(#titlebar, #TabsToolbar, #toolbar-menubar, #nav-bar) :is(.titlebar-buttonbox-container, .titlebar-buttonbox) {
+            :root :is(.titlebar-buttonbox-container, .titlebar-buttonbox),
+            :root :is(#titlebar, #TabsToolbar, #toolbar-menubar, #nav-bar) :is(.titlebar-buttonbox-container, .titlebar-buttonbox) {
                 display: none !important;
             }
             `
@@ -316,7 +333,7 @@
             // The direct child combinator is what keeps this rule away from #vertical-spacer, which
             // carries the same class but is a spring inside the nav bar target instead of a titlebar item.
             css += `
-            :root[${TAB_BAR_HORIZONTAL_ATTR}] :is(#TabsToolbar, #nav-bar) > .titlebar-spacer {
+            :root :is(#TabsToolbar, #nav-bar) > .titlebar-spacer {
                 display: none !important;
             }
             `
