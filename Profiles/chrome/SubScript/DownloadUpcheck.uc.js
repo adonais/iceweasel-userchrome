@@ -13,7 +13,9 @@
 // userChromeJS.downloadPlus.enableSaveTo 下载对话框启用保存到
 // userChromeJS.downloadPlus.showAllDrives 下载对话框显示所有驱动器
 
+// @note            20261026 添加FILE_LESS参数, 文件小于约2MB, 不调用下载器. by adonais
 // @note            20260801 兼容ESR115. by adonais
+// @note            20260701 增加exDomain函数, 排除不想调用下载器的URL. by adonais
 // @note            20260327 修复在Fx 149.0, 单选框初始化状态问题. by adonais
 // @note            20251102 支持接管Iceweasel浏览器下载而不用弹出下载窗口. by adonais
 // @note            20251101 支持 Iceweasel l10n, 此脚本不再适用于firefox. by adonais
@@ -125,12 +127,11 @@
     if (window.DownloadPlus) return;
 
     window.DownloadPlus = {
-        PREF_FLASHGOT_PATH: "userChromeJS.downloadPlus.flashgotPath",
         PREF_DEFAULT_MANAGER: "userChromeJS.downloadPlus.flashgotDefaultManager",
-        PREF_DOWNLOAD_MANAGERS: "userChromeJS.downloadPlus.flashgotDownloadManagers",
         SAVE_DIRS: [[Services.dirsvc.get('Desk', Ci.nsIFile).path, this_desktop], [
             Services.dirsvc.get('DfltDwnld', Ci.nsIFile).path, downloads_folder
         ]],
+        FILE_LESS: 2048000,
         get FLASHGOT_PATH () {
             delete this.FLASHGOT_PATH;
             const flashgotFile = Services.dirsvc.get("GreBinD", Ci.nsIFile);
@@ -272,46 +273,43 @@
                         }).then(null, Cu.reportError);
                     }
                 },
-
-                onDownloadAdded: (aDownload) => {
-                    // 开始下载
-                    if (!exDomain(aDownload.source.url) && !isTrue("userChromeJS.downloadPlus.shown", false) && !aDownload.error) {
+                onDownloadChanged: (aDownload) => {
+                    const dflags = DownloadsCommon.getIndicatorData(window).attentionSuppressed;
+                    if (dflags & DownloadsCommon.SUPPRESS_ALL_DOWNLOADS_OPEN || dflags & DownloadsCommon.SUPPRESS_CONTENT_AREA_DOWNLOADS_OPEN) {
+                        console.log("DownloadUpcheck: The download page is opened, we do nothing");
+                        return;
+                    }
+                    // 取消本次下载以及删除历史记录
+                    if (!aDownload.stopped && !exDomain(aDownload.source.url) && !isTrue("userChromeJS.downloadPlus.shown", false) && aDownload.totalBytes > this.FILE_LESS && !aDownload.error) {
                         if (alwaysOp) {
                             // 先取消工具栏下载弹出面板, 下载后恢复
                             setBool("browser.download.alwaysOpenPanel", false);
                         }
                         DownloadsCommon.deleteDownloadFiles(aDownload, 2);
-                        // 取消本次下载以及删除历史记录
-                        console.log("we delete [%s]", aDownload.source.url);
+                        console.log("DownloadUpcheck: we delete [%s]", aDownload.source.url);
                     }
-                },
-
-                onDownloadChanged: (aDownload) => {
-                    const dflags = DownloadsCommon.getIndicatorData(window).attentionSuppressed;
-                    if (dflags & DownloadsCommon.SUPPRESS_ALL_DOWNLOADS_OPEN || dflags & DownloadsCommon.SUPPRESS_CONTENT_AREA_DOWNLOADS_OPEN) {
-                        // The download page is opened, we do nothing
-                        return;
-                    }
-                    // 重置userChromeJS.downloadPlus.shown, 启用拦截
-                    if (isTrue("userChromeJS.downloadPlus.shown", false) && aDownload.currentBytes > 0) {
-                        Services.prefs.clearUserPref("userChromeJS.downloadPlus.shown");
-                    }
-                    // 拦截了下载, 调用下载器
-                    if (aDownload.error && aDownload.error.result === undefined) {
-                        // 使用文件锁防止多次调用
-                        const hashUrl = hashText(aDownload.source.url, "SHA-256");
-                        if (handlePath(hashUrl)) {
-                            // call upcheck;
-                            const id = managerId(this.DEFAULT_MANAGER);
-                            const referer = aDownload.source.referrerInfo ? aDownload.source.referrerInfo : null;
-                            if (upcheck.download_caller(id, aDownload.source.url, referer, aDownload.target.path, null) == 0) {
-                                // 注入页面, 添加下载提示
-                                messageTip();
+                    if (aDownload.stopped) {
+                        // 重置userChromeJS.downloadPlus.shown, 启用拦截
+                        if (isTrue("userChromeJS.downloadPlus.shown", false) && aDownload.currentBytes > 0) {
+                            Services.prefs.clearUserPref("userChromeJS.downloadPlus.shown");
+                        }
+                        // 拦截了下载, 调用下载器
+                        if ((aDownload.error && aDownload.error.result === undefined)) {
+                            // 使用文件锁防止多次调用
+                            const hashUrl = hashText(aDownload.source.url, "SHA-256");
+                            if (handlePath(hashUrl)) {
+                                // call upcheck;
+                                const id = managerId(this.DEFAULT_MANAGER);
+                                const referer = aDownload.source.referrerInfo ? aDownload.source.referrerInfo : null;
+                                if (upcheck.download_caller(id, aDownload.source.url, referer, aDownload.target.path, null) == 0) {
+                                    // 注入页面, 添加下载提示
+                                    messageTip();
+                                }
+                                setTimeout(removeFile, 1600, hashUrl, aDownload);
                             }
-                            if (alwaysOp) {
-                                Services.prefs.clearUserPref("browser.download.alwaysOpenPanel");
-                            }
-                            setTimeout(removeFile, 1000, hashUrl, aDownload);
+                        }
+                        if (alwaysOp) {
+                            Services.prefs.clearUserPref("browser.download.alwaysOpenPanel");
                         }
                     }
                 }
@@ -790,7 +788,7 @@
             }
             return Array.from(hash, (c, i) => toHexString(hash.charCodeAt(i))).join("");
         } catch (e) {
-            console.log("hashText error");
+            console.log("DownloadUpcheck: hashText error");
         }
     }
 
