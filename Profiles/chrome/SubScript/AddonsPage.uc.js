@@ -57,7 +57,7 @@
         window.AddonManagerPrivate = apLazy.AddonManagerPrivate;
     }
     await ChromeUtils.defineLazyGetter(apLazy, 'addons_l10n', () => {
-        return new Localization(["browser/preferences/preferences.ftl"], true);
+        return new Localization(["browser/preferences/preferences.ftl", "branding/brand.ftl"], true);
     });
 
     const iconURL = "chrome://mozapps/skin/extensions/extensionGeneric.svg";  // uc 脚本列表的图标
@@ -170,9 +170,14 @@
         addons_installpage,
         addons_homepage,
         addons_mousegestures_description,
+        addons_multiline_description,
         addons_downloadupcheck_description,
         addons_autoactivatetab_description,
         addons_rightclickclosetab_description,
+        script_requires_restart,
+        script_restart_title,
+        script_restart_now,
+        script_restart_later,
     ] = apLazy.addons_l10n.formatValuesSync(
     [
         'iceweasel_addons_seteditorpath',
@@ -185,9 +190,14 @@
         'iceweasel_addons_installpage',
         'iceweasel_addons_homepage',
         'iceweasel_addons_mousegestures_description',
+        'iceweasel_addons_multiline_description',
         'iceweasel_addons_downloadupcheck_description',
         'iceweasel_addons_autoactivatetab_description',
-        'iceweasel_addons_rightclickclosetab_description'
+        'iceweasel_addons_rightclickclosetab_description',
+        'iceweasel_script_requires_restart',
+        'iceweasel_script_restart_title',
+        'iceweasel_script_restart_now',
+        'iceweasel_script_restart_later',
     ]);
 
     window.AM_Helper = {
@@ -2398,16 +2408,22 @@
 
         this.id = "ucjs:" + this._script.filename;  //this._script.url.replace(/\//g, "|");
         this.name = this._script.filename;
-        this.description = this._script.description || "";
         // 定制脚本的ll0n描述
-        if (this.description === "MouseGestures.uc.js") {
-            this.description = addons_mousegestures_description;
-        } else if (this.description === "DownloadUpcheck.uc.js") {
-            this.description = addons_downloadupcheck_description;
-        } else if (this.description === "HoverActivateTab.uc.js") {
-            this.description = addons_autoactivatetab_description;
-        } else if (this.description === "RclickCloseTab.uc.js") {
-            this.description = addons_rightclickclosetab_description;
+        if (this.name) {
+            if (this.name === "MouseGestures.uc.js") {
+                this.description = addons_mousegestures_description;
+            } else if (this.name === "MultiRowTabLiteforFx.uc.js") {
+                this.description = addons_multiline_description;
+            } else if (this.name === "DownloadUpcheck.uc.js") {
+                this.description = addons_downloadupcheck_description;
+            } else if (this.name === "HoverActivateTab.uc.js") {
+                this.description = addons_autoactivatetab_description;
+            } else if (this.name === "RclickCloseTab.uc.js") {
+                this.description = addons_rightclickclosetab_description;
+            }
+        }
+        if (!this.description) {
+            this.description = this._script.description || "";
         }
         this.enabled = userChromeJSAddon.getScriptEnabled(aBackend, this._script);
         this.homepageURL = this._script.homepageURL || null;
@@ -2515,6 +2531,7 @@
                 userChromeJSAddon.enableLegacyScript(this, backend);
             }
             this.userDisabled = false;
+            await confirmIceRestartPrompt();
         },
         async disable () {
             const backend = this.resolveBackend();
@@ -2522,8 +2539,52 @@
                 userChromeJSAddon.disableLegacyScript(this, backend);
             }
             this.userDisabled = true;
+            await confirmIceRestartPrompt();
         },
     };
+
+    // Returns whether we should restart.
+    async function needIceRestartPrompt() {
+        let buttonFlags =
+            Services.prompt.BUTTON_POS_0 * Services.prompt.BUTTON_TITLE_IS_STRING +
+            Services.prompt.BUTTON_POS_1 * Services.prompt.BUTTON_TITLE_IS_STRING +
+            Services.prompt.BUTTON_POS_1_DEFAULT;
+        let buttonIndex = Services.prompt.confirmEx(
+            window.browsingContext.topChromeWindow,
+            script_restart_title,
+            script_requires_restart,
+            buttonFlags,
+            script_restart_now,
+            script_restart_later,
+            null,
+            null,
+            {}
+        );
+        return buttonIndex === 0;
+    }
+
+    async function confirmIceRestartPrompt() {
+        if ((await needIceRestartPrompt())) {
+            let cancelQuit = Cc["@mozilla.org/supports-PRBool;1"].createInstance(
+                Ci.nsISupportsPRBool
+            );
+            Services.obs.notifyObservers(
+                cancelQuit,
+                "quit-application-requested",
+                "restart"
+            );
+            if (!cancelQuit.data) {
+                // restart was not cancelled.
+                // Note that even if we're in safe mode, we don't restart
+                // into safe mode, because it's likely the user is trying to
+                // fix a crash or something, and they'd probably like to
+                // see if it works.
+                Services.startup.quit(
+                  Ci.nsIAppStartup.eAttemptQuit | Ci.nsIAppStartup.eRestart
+                );
+            }
+        }
+    }
 
     function $C (doc, tag, attrs, parent, reference) {
         let node;
